@@ -36,6 +36,7 @@
     border-bottom: 1px solid var(--bd-light);
   }
   #sidebar h1 { margin: 0 0 10px; font-size: 18px; color: var(--accent); }
+  #sidebar h1 .app-version { margin-left: 5px; color: #888; font-size: 12px; font-weight: normal; }
   #sidebar .toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
   #search {
     width: 100%; margin-top: 8px; padding: 6px 8px;
@@ -73,8 +74,12 @@
   }
   #editorToolbar .toolbar-inner {
     width: 100%; max-width: 900px; margin: 0 auto;
-    display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap;
+    display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
   }
+  #editorToolbar .toolbar-nav,
+  #editorToolbar .toolbar-actions { display: flex; align-items: center; gap: 6px; }
+  #editorToolbar .toolbar-nav button { min-width: 36px; padding-left: 9px; padding-right: 9px; }
+  #slipPosition { min-width: 50px; color: #666; font-size: 12px; font-weight: bold; text-align: center; }
   #editor { max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid var(--bd-light); border-radius: 6px; padding: 24px; }
   #empty { text-align: center; color: #999; margin-top: 120px; }
 
@@ -93,6 +98,7 @@
   button.danger { color: var(--danger); }
   button.danger:hover { background: #fdecea; }
   button.mini { padding: 2px 7px; font-size: 12px; }
+  button:disabled { opacity: 0.4; cursor: default; background: #f7f7f7; }
 
   .editor-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
   .editor-head .title-area { flex: 1; min-width: 300px; }
@@ -240,7 +246,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>출금전표 관리</h1>
+      <h1>출금전표 관리 <span class="app-version">v11</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="newSlip()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -260,11 +266,18 @@
   <main id="main">
     <div id="editorToolbar">
       <div class="toolbar-inner">
-        <button onclick="duplicateSlip()">전표 복제</button>
-        <button onclick="copySlipText()" title="입력 내용을 탭으로 구분해 복사합니다">전체 복사</button>
-        <button class="primary" onclick="printSlip()">인쇄</button>
-        <button onclick="resetSlip()">초기화</button>
-        <button class="danger" onclick="deleteSlip()">삭제</button>
+        <div class="toolbar-nav" aria-label="전표 이동">
+          <button id="prevSlipBtn" onclick="selectRelativeSlip(-1)" title="이전 전표">◀</button>
+          <span id="slipPosition">0 / 0</span>
+          <button id="nextSlipBtn" onclick="selectRelativeSlip(1)" title="다음 전표">▶</button>
+        </div>
+        <div class="toolbar-actions">
+          <button onclick="duplicateSlip()">전표 복제</button>
+          <button onclick="copySlipText()" title="입력 내용을 탭으로 구분해 복사합니다">전체 복사</button>
+          <button class="primary" onclick="printSlip()">인쇄</button>
+          <button onclick="resetSlip()">초기화</button>
+          <button class="danger" onclick="deleteSlip()">삭제</button>
+        </div>
       </div>
     </div>
     <div id="empty">전표를 선택하거나 [+ 새 전표]를 눌러 작성하세요.</div>
@@ -561,12 +574,28 @@ function slipSummary(s) {
   const parts = s.items.filter(it => it.vendor.trim()).map(it => it.vendor.trim());
   return parts.join(', ') || '(내용 없음)';
 }
+function sortedSlips() {
+  return [...slips].sort((a, b) => b.draftDate.localeCompare(a.draftDate) || b.id.localeCompare(a.id));
+}
+function updateSlipNavigation() {
+  const sorted = sortedSlips();
+  const index = sorted.findIndex(s => s.id === currentId);
+  document.getElementById('slipPosition').textContent = index >= 0 ? `${index + 1} / ${sorted.length}` : `0 / ${sorted.length}`;
+  document.getElementById('prevSlipBtn').disabled = index <= 0;
+  document.getElementById('nextSlipBtn').disabled = index < 0 || index >= sorted.length - 1;
+}
+function selectRelativeSlip(direction) {
+  const sorted = sortedSlips();
+  const index = sorted.findIndex(s => s.id === currentId);
+  const target = sorted[index + direction];
+  if (target) selectSlip(target.id);
+}
 
 /* ===== 목록 ===== */
 function renderList() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   const ul = document.getElementById('slipList');
-  const sorted = [...slips].sort((a, b) => b.draftDate.localeCompare(a.draftDate) || b.id.localeCompare(a.id));
+  const sorted = sortedSlips();
   ul.innerHTML = '';
   let shown = 0;
   for (const s of sorted) {
@@ -586,6 +615,7 @@ function renderList() {
     ul.appendChild(li);
   }
   document.getElementById('slipCount').textContent = `전표 ${shown}/${slips.length}건`;
+  updateSlipNavigation();
 }
 
 /* ===== 편집기 ===== */
