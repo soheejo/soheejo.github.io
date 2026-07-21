@@ -53,6 +53,7 @@
   #slipList .sum { float: right; color: var(--accent); font-weight: bold; }
   #slipList .title { font-weight: bold; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #slipList .desc { color: #777; font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #slipList .created { color: #999; font-size: 11px; margin-top: 4px; }
   #sidebar footer {
     padding: 10px 16px;
     border-top: 1px solid var(--bd-light);
@@ -104,6 +105,8 @@
     font-family: inherit; font-size: 14px;
   }
   #slipTitle:focus { outline: 2px solid var(--accent); }
+  .created-meta { margin-top: 6px; color: #888; font-size: 12px; text-align: right; }
+  .created-meta span { color: #555; font-weight: bold; }
 
   .dates { display: flex; gap: 20px; margin-bottom: 14px; flex-wrap: wrap; }
   .dates label { display: flex; align-items: center; gap: 8px; font-weight: bold; }
@@ -273,6 +276,7 @@
             <label for="slipTitle">전표 제목</label>
             <input id="slipTitle" type="text" maxlength="100" placeholder="목록에서 구분할 제목 (인쇄되지 않음)" oninput="onTitleInput()">
           </div>
+          <div class="created-meta">작성일시 <span id="createdAt"></span> · 인쇄되지 않음</div>
         </div>
       </div>
 
@@ -392,6 +396,7 @@ let saveTimer = null;
 
 /* 구버전 전표 마이그레이션 */
 slips.forEach(s => {
+  ensureCreatedAt(s);
   if (s.title === undefined) s.title = '';
   if (s.showDetails === undefined) s.showDetails = true;
   if (!Array.isArray(s.attachments)) s.attachments = [];
@@ -491,6 +496,21 @@ function nextThursday(iso) {
   return toIsoLocal(d);
 }
 function todayIso() { return toIsoLocal(new Date()); }
+function ensureCreatedAt(s) {
+  if (s.createdAt && !isNaN(new Date(s.createdAt).getTime())) return;
+  const idTimestamp = Number(String(s.id || '').match(/^s(\d{13})_/)?.[1]);
+  if (Number.isFinite(idTimestamp) && idTimestamp > 946684800000) {
+    s.createdAt = new Date(idTimestamp).toISOString();
+    return;
+  }
+  const draftTimestamp = s.draftDate ? new Date(s.draftDate + 'T00:00:00').getTime() : NaN;
+  s.createdAt = new Date(Number.isFinite(draftTimestamp) ? draftTimestamp : Date.now()).toISOString();
+}
+function fmtDateTime(value) {
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  return `${toIsoLocal(d)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
@@ -524,6 +544,7 @@ function blankSlip() {
   const draft = todayIso();
   return {
     id: uid('s'),
+    createdAt: new Date().toISOString(),
     draftDate: draft,
     acctDate: nextThursday(draft),
     items: Array.from({ length: 8 }, blankItem),
@@ -550,7 +571,7 @@ function renderList() {
   let shown = 0;
   for (const s of sorted) {
     if (q) {
-      const hay = [s.title, s.memo, ...s.details, ...s.items.map(i => i.acct + ' ' + i.vendor)].join(' ').toLowerCase();
+      const hay = [s.title, s.createdAt, fmtDateTime(s.createdAt), s.memo, ...s.details, ...s.items.map(i => i.acct + ' ' + i.vendor)].join(' ').toLowerCase();
       if (!hay.includes(q)) continue;
     }
     shown++;
@@ -559,7 +580,8 @@ function renderList() {
     li.innerHTML = `<span class="date">${esc(s.draftDate)}</span>` +
       `<span class="sum">${won(slipTotal(s))}</span>` +
       `<div class="title">${esc(s.title?.trim() || '(제목 없음)')}</div>` +
-      `<div class="desc">${esc(slipSummary(s))}</div>`;
+      `<div class="desc">${esc(slipSummary(s))}</div>` +
+      `<div class="created">작성 ${esc(fmtDateTime(s.createdAt))}</div>`;
     li.onclick = () => selectSlip(s.id);
     ul.appendChild(li);
   }
@@ -577,6 +599,7 @@ function selectSlip(id) {
   document.getElementById('draftDate').value = s.draftDate;
   document.getElementById('acctDate').value = s.acctDate;
   document.getElementById('slipTitle').value = s.title || '';
+  document.getElementById('createdAt').textContent = fmtDateTime(s.createdAt);
   document.getElementById('memo').value = s.memo;
   document.getElementById('showDetails').checked = s.showDetails;
   document.getElementById('detailsWrap').style.display = s.showDetails ? 'block' : 'none';
@@ -1055,6 +1078,7 @@ function duplicateSlip() {
   if (!s) return;
   const copy = JSON.parse(JSON.stringify(s));
   copy.id = uid('s');
+  copy.createdAt = new Date().toISOString();
   copy.draftDate = todayIso();
   copy.acctDate = nextThursday(copy.draftDate);
   copy.attachments = []; // 세금계산서는 전표마다 새로 첨부
@@ -1068,6 +1092,7 @@ function tsvCell(value) {
 function buildSlipCopyText(s) {
   const lines = [
     ['전표 제목', s.title || ''],
+    ['작성일시', fmtDateTime(s.createdAt)],
     ['기안일', s.draftDate || '', '회계일', s.acctDate || ''],
     [],
     ['번호', '코드', '계정과목', '거래처', '공급가액', '부가세', '합계'],
@@ -1326,6 +1351,7 @@ function importJson() {
         if (!confirm(`전표 ${data.slips.length}건을 가져옵니다. 현재 데이터(${slips.length}건)를 덮어씁니다. 계속할까요?`)) return;
         slips = data.slips;
         slips.forEach(s => {
+          ensureCreatedAt(s);
           if (s.title === undefined) s.title = '';
           if (s.showDetails === undefined) s.showDetails = true;
           if (!Array.isArray(s.attachments)) s.attachments = [];
