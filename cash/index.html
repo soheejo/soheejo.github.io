@@ -58,6 +58,20 @@
     border-radius: 10px; background: #eef2f7; color: #555;
     font-size: 11px; font-weight: bold; vertical-align: middle;
   }
+  /* 유형별 배지 색 (연한 배경) — #slipList 접두어로 기본 규칙보다 명시도 확보 */
+  #slipList .type-badge.badge-withdrawal, .slip-type-badge.badge-withdrawal { background: #fdecec; color: #c0392b; } /* 출금 - 연한 빨강 */
+  #slipList .type-badge.badge-receipt,    .slip-type-badge.badge-receipt    { background: #e7f4e8; color: #2e7d32; } /* 입금 - 연한 초록 */
+  #slipList .type-badge.badge-transfer,   .slip-type-badge.badge-transfer   { background: #e8eef7; color: #2b579a; } /* 대체 - 연한 파랑 */
+  #slipList li.selectable { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+  #slipList li.selectable .sel-check { margin-top: 2px; width: 16px; height: 16px; flex: none; pointer-events: none; }
+  #slipList li.selectable .li-body { flex: 1; min-width: 0; }
+  #slipList li.picked { background: #fff7e6; }
+  #selectBar {
+    display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 16px; border-bottom: 1px solid var(--bd-light); background: #fafbfc; font-size: 12px;
+  }
+  #selectBar label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  #selectCount { color: #666; font-weight: bold; }
   #slipList .title { font-weight: bold; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #slipList .desc { color: #777; font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #slipList .created { color: #999; font-size: 11px; margin-top: 4px; }
@@ -268,7 +282,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>전표 관리 <span class="app-version">v16</span></h1>
+      <h1>전표 관리 <span class="app-version">v18</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="openNewSlipDialog()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -276,8 +290,17 @@
       </div>
       <input id="search" type="search" placeholder="검색 (유형, 제목, 계정과목, 거래처, 적요)" oninput="renderList()">
     </header>
+    <div id="selectBar">
+      <label><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"> 전체</label>
+      <span id="selectCount">0개 선택</span>
+      <span style="flex:1"></span>
+      <button class="mini" onclick="exportSelectedJson()">선택 백업</button>
+      <button class="mini danger" onclick="deleteSelected()">선택 삭제</button>
+      <button class="mini" onclick="toggleSelectMode()">취소</button>
+    </div>
     <ul id="slipList"></ul>
     <footer>
+      <button class="mini" onclick="toggleSelectMode()" id="selectModeBtn">목록 선택</button>
       <button class="mini" onclick="exportJson()">백업 (JSON)</button>
       <button class="mini" onclick="importJson()">가져오기</button>
       <button class="mini danger" onclick="resetAll()">전체 초기화</button>
@@ -452,6 +475,17 @@
   </div>
 </dialog>
 
+<!-- 백업 가져오기 방식 선택 -->
+<dialog id="importDialog">
+  <h3>백업 가져오기</h3>
+  <p id="importInfo" style="max-width:340px;line-height:1.5"></p>
+  <div style="margin-top:14px;display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
+    <button class="primary" onclick="applyImport('merge')">추가(병합)</button>
+    <button class="danger" onclick="applyImport('overwrite')">덮어쓰기(전체 교체)</button>
+    <button onclick="document.getElementById('importDialog').close()">취소</button>
+  </div>
+</dialog>
+
 <!-- 새 전표 유형 선택 -->
 <dialog id="typeDialog">
   <h3>새 전표 만들기</h3>
@@ -504,6 +538,8 @@ let accts = load(LS_ACCTS, DEFAULT_ACCTS.map(([name, code]) => ({ name, code: St
 let bankAccounts = load(LS_BANK_ACCOUNTS, []);
 let currentId = null;
 let saveTimer = null;
+let selectMode = false;
+const selectedIds = new Set();
 
 /* 구버전 전표 마이그레이션 */
 slips.forEach(normalizeSlip);
@@ -765,29 +801,82 @@ function selectRelativeSlip(direction) {
 }
 
 /* ===== 목록 ===== */
-function renderList() {
+function visibleSlips() {
   const q = document.getElementById('search').value.trim().toLowerCase();
+  return sortedSlips().filter(s => !q || slipSearchText(s).includes(q));
+}
+function renderList() {
   const ul = document.getElementById('slipList');
-  const sorted = sortedSlips();
+  const list = visibleSlips();
   ul.innerHTML = '';
-  let shown = 0;
-  for (const s of sorted) {
-    if (q) {
-      if (!slipSearchText(s).includes(q)) continue;
-    }
-    shown++;
+  for (const s of list) {
     const li = document.createElement('li');
-    li.className = s.id === currentId ? 'active' : '';
-    li.innerHTML = `<span class="date">${esc(s.draftDate)}</span><span class="type-badge">${esc(slipTypeLabel(s))}</span>` +
+    const picked = selectMode && selectedIds.has(s.id);
+    li.className = [s.id === currentId ? 'active' : '', selectMode ? 'selectable' : '', picked ? 'picked' : ''].filter(Boolean).join(' ');
+    const body = `<span class="date">${esc(s.draftDate)}</span><span class="type-badge badge-${slipType(s)}">${esc(slipTypeLabel(s))}</span>` +
       `<span class="sum">${won(slipTotal(s))}</span>` +
       `<div class="title">${esc(s.title?.trim() || '(제목 없음)')}</div>` +
       `<div class="desc">${esc(slipSummary(s))}</div>` +
       `<div class="created">작성 ${esc(fmtDateTime(s.createdAt))}</div>`;
-    li.onclick = () => selectSlip(s.id);
+    if (selectMode) {
+      li.innerHTML = `<input type="checkbox" class="sel-check" ${picked ? 'checked' : ''}><div class="li-body">${body}</div>`;
+      li.onclick = () => toggleSelect(s.id);
+    } else {
+      li.innerHTML = body;
+      li.onclick = () => selectSlip(s.id);
+    }
     ul.appendChild(li);
   }
-  document.getElementById('slipCount').textContent = `전표 ${shown}/${slips.length}건`;
+  document.getElementById('slipCount').textContent = `전표 ${list.length}/${slips.length}건`;
   updateSlipNavigation();
+  updateSelectBar();
+}
+
+/* ===== 목록 다중 선택·삭제 ===== */
+function toggleSelectMode() {
+  selectMode = !selectMode;
+  selectedIds.clear();
+  document.getElementById('selectBar').style.display = selectMode ? 'flex' : 'none';
+  document.getElementById('selectModeBtn').textContent = selectMode ? '선택 종료' : '목록 선택';
+  renderList();
+}
+function toggleSelect(id) {
+  if (selectedIds.has(id)) selectedIds.delete(id);
+  else selectedIds.add(id);
+  renderList();
+}
+function toggleSelectAll() {
+  const ids = visibleSlips().map(s => s.id);
+  const allPicked = ids.length && ids.every(id => selectedIds.has(id));
+  if (allPicked) ids.forEach(id => selectedIds.delete(id));
+  else ids.forEach(id => selectedIds.add(id));
+  renderList();
+}
+function updateSelectBar() {
+  if (!selectMode) return;
+  const ids = visibleSlips().map(s => s.id);
+  const count = ids.filter(id => selectedIds.has(id)).length;
+  document.getElementById('selectCount').textContent = `${count}개 선택`;
+  const all = document.getElementById('selectAll');
+  all.checked = ids.length > 0 && count === ids.length;
+  all.indeterminate = count > 0 && count < ids.length;
+}
+async function deleteSelected() {
+  const ids = [...selectedIds];
+  if (!ids.length) { alert('삭제할 전표를 선택하세요.'); return; }
+  if (!confirm(`선택한 ${ids.length}건의 전표를 삭제합니다. 되돌릴 수 없습니다. 계속할까요?`)) return;
+  const idSet = new Set(ids);
+  slips.filter(s => idSet.has(s.id)).forEach(s => (s.attachments || []).forEach(imgDel));
+  slips = slips.filter(s => !idSet.has(s.id));
+  if (idSet.has(currentId)) {
+    currentId = null;
+    document.getElementById('editor').style.display = 'none';
+    document.getElementById('editorToolbar').style.display = 'none';
+    document.getElementById('empty').style.display = 'block';
+  }
+  selectedIds.clear();
+  persist();
+  renderList();
 }
 
 /* ===== 편집기 ===== */
@@ -804,7 +893,9 @@ function selectSlip(id) {
   document.getElementById('acctDate').value = s.acctDate;
   updateWeekdays();
   document.getElementById('slipTitle').value = s.title || '';
-  document.getElementById('slipTypeBadge').textContent = slipTypeLabel(s);
+  const typeBadge = document.getElementById('slipTypeBadge');
+  typeBadge.textContent = slipTypeLabel(s);
+  typeBadge.className = 'slip-type-badge badge-' + slipType(s);
   document.getElementById('createdAt').textContent = fmtDateTime(s.createdAt);
   document.getElementById('memo').value = s.memo;
   document.getElementById('showDetails').checked = s.showDetails;
@@ -1721,6 +1812,29 @@ async function exportJson() {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+// 선택한 전표만 백업 (선택 모드에서 사용)
+async function exportSelectedJson() {
+  const ids = [...selectedIds];
+  if (!ids.length) { alert('백업할 전표를 선택하세요.'); return; }
+  const idSet = new Set(ids);
+  const chosen = slips.filter(s => idSet.has(s.id));
+  const images = {};
+  for (const s of chosen) {
+    for (const id of (s.attachments || [])) {
+      const d = await imgGet(id);
+      if (d) images[id] = d;
+    }
+  }
+  const payload = { slips: chosen, accts, bankAccounts, images, partial: true };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `전표_선택백업_${chosen.length}건_${todayIso()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+let pendingImport = null;
 function importJson() {
   const inp = document.createElement('input');
   inp.type = 'file';
@@ -1729,37 +1843,70 @@ function importJson() {
     const file = inp.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = async () => {
+    reader.onload = () => {
       try {
         const data = JSON.parse(reader.result);
         if (!Array.isArray(data.slips)) throw new Error('형식 오류');
-        if (!confirm(`전표 ${data.slips.length}건을 가져옵니다. 현재 데이터(${slips.length}건)를 덮어씁니다. 계속할까요?`)) return;
-        slips = data.slips;
-        slips.forEach(normalizeSlip);
-        if (data.images) {
-          for (const [id, d] of Object.entries(data.images)) await imgPut(id, d);
-        }
-        if (Array.isArray(data.accts) && data.accts.length) {
-          accts = data.accts;
-          localStorage.setItem(LS_ACCTS, JSON.stringify(accts));
-          refreshAcctDatalist();
-        }
-        if (Array.isArray(data.bankAccounts)) {
-          bankAccounts = data.bankAccounts;
-          localStorage.setItem(LS_BANK_ACCOUNTS, JSON.stringify(bankAccounts));
-          refreshBankAccountDatalist();
-        }
-        currentId = null;
-        persist();
-        document.getElementById('editorToolbar').style.display = 'none';
-        document.getElementById('editor').style.display = 'none';
-        document.getElementById('empty').style.display = 'block';
-        renderList();
+        pendingImport = data;
+        document.getElementById('importInfo').innerHTML =
+          `${data.partial ? '선택 백업' : '전체 백업'} · 전표 <b>${data.slips.length}건</b><br>` +
+          `현재 <b>${slips.length}건</b>에 어떻게 반영할까요?<br><br>` +
+          `· <b>추가(병합)</b>: 현재 전표에 더합니다<br>` +
+          `· <b>덮어쓰기(전체 교체)</b>: 현재 전표를 모두 지우고 이 백업으로 교체합니다`;
+        document.getElementById('importDialog').showModal();
       } catch (e) { alert('가져오기 실패: ' + e.message); }
     };
     reader.readAsText(file);
   };
   inp.click();
+}
+async function applyImport(mode) {
+  const data = pendingImport;
+  if (!data) return;
+  document.getElementById('importDialog').close();
+  try {
+    if (data.images) {
+      for (const [id, d] of Object.entries(data.images)) await imgPut(id, d);
+    }
+    const incoming = data.slips.map(s => normalizeSlip({ ...s }));
+
+    if (mode === 'overwrite') {
+      slips = incoming;
+      if (Array.isArray(data.accts) && data.accts.length) {
+        accts = data.accts;
+        localStorage.setItem(LS_ACCTS, JSON.stringify(accts));
+        refreshAcctDatalist();
+      }
+      if (Array.isArray(data.bankAccounts)) {
+        bankAccounts = data.bankAccounts;
+        localStorage.setItem(LS_BANK_ACCOUNTS, JSON.stringify(bankAccounts));
+        refreshBankAccountDatalist();
+      }
+      currentId = null;
+      document.getElementById('editorToolbar').style.display = 'none';
+      document.getElementById('editor').style.display = 'none';
+      document.getElementById('empty').style.display = 'block';
+    } else { // merge: 현재 전표에 추가 (ID 충돌 시 새 ID 부여)
+      const existing = new Set(slips.map(s => s.id));
+      for (const s of incoming) {
+        if (existing.has(s.id)) s.id = uid('s');
+        existing.add(s.id);
+        slips.push(s);
+      }
+      // 계정과목은 없는 항목만 추가 (기존 우선)
+      if (Array.isArray(data.accts)) {
+        const names = new Set(accts.map(a => a.name));
+        let added = false;
+        data.accts.forEach(a => { if (a.name && !names.has(a.name)) { accts.push(a); names.add(a.name); added = true; } });
+        if (added) { localStorage.setItem(LS_ACCTS, JSON.stringify(accts)); refreshAcctDatalist(); }
+      }
+    }
+    pendingImport = null;
+    if (selectMode) toggleSelectMode();
+    persist();
+    renderList();
+    alert(`${mode === 'overwrite' ? '덮어쓰기' : '추가'} 완료 — 전표 ${incoming.length}건 반영`);
+  } catch (e) { alert('가져오기 실패: ' + e.message); }
 }
 
 /* ===== 초기화 ===== */
