@@ -163,6 +163,10 @@
   table.items tr.total td { background: var(--accent-light); font-weight: bold; text-align: right; padding: 7px 6px; }
   table.items tr.total td:first-child { text-align: center; }
   .vat-btns { display: flex; gap: 2px; justify-content: center; }
+  .amt-wrap { display: flex; align-items: center; gap: 2px; }
+  .amt-wrap input.num { flex: 1; min-width: 0; }
+  .amt-wrap .clearamt { flex: none; padding: 2px 6px; color: #999; font-weight: bold; }
+  .amt-wrap .clearamt:hover { color: var(--danger); background: #fdecea; }
   .type-editor[hidden] { display: none; }
   .balance-status { margin-left: 8px; font-size: 12px; font-weight: bold; }
   .balance-status.ok { color: #2e7d32; }
@@ -282,7 +286,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>전표 관리 <span class="app-version">v18</span></h1>
+      <h1>전표 관리 <span class="app-version">v20</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="openNewSlipDialog()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -352,10 +356,9 @@
             <th style="width:44px">코드</th>
             <th style="width:150px">계정과목</th>
             <th>거래처</th>
-            <th style="width:110px">공급가액</th>
-            <th style="width:100px">부가세</th>
-            <th style="width:64px">10%</th>
-            <th style="width:110px">합계</th>
+            <th style="width:120px">합계</th>
+            <th style="width:135px">공급가액</th>
+            <th style="width:135px">부가세</th>
             <th style="width:30px"></th>
           </tr>
         </thead>
@@ -363,10 +366,9 @@
         <tfoot>
           <tr class="total">
             <td colspan="4">합계</td>
+            <td id="totSum"></td>
             <td id="totSupply"></td>
             <td id="totVat"></td>
-            <td></td>
-            <td id="totSum"></td>
             <td style="border:none;background:#fff"></td>
           </tr>
         </tfoot>
@@ -929,44 +931,73 @@ function renderItems(s) {
       `<td class="code">${esc(acctCode(it.acct))}</td>` +
       `<td><input list="acctList" value="${esc(it.acct)}" data-i="${i}" data-f="acct"></td>` +
       `<td><input value="${esc(it.vendor)}" data-i="${i}" data-f="vendor" placeholder="거래처:적요"></td>` +
-      `<td><input class="num" value="${fmt(it.supply)}" data-i="${i}" data-f="supply" inputmode="numeric"></td>` +
-      `<td><input class="num" value="${fmt(it.vat)}" data-i="${i}" data-f="vat" inputmode="numeric"></td>` +
-      `<td><div class="vat-btns">` +
-        `<button class="mini" tabindex="-1" onclick="setVat(${i},'10')" title="부가세 10%">10%</button>` +
-        `<button class="mini" tabindex="-1" onclick="setVat(${i},'0')" title="부가세 0">0</button>` +
-      `</div></td>` +
       `<td class="ro">${fmt(itemSum(it)) || ''}</td>` +
+      `<td><div class="amt-wrap"><input class="num" value="${fmt(it.supply)}" data-i="${i}" data-f="supply" inputmode="numeric"><button class="mini clearamt" tabindex="-1" onclick="clearAmount(${i},'supply')" title="칸 지우기">✕</button></div></td>` +
+      `<td><div class="amt-wrap"><input class="num" value="${fmt(it.vat)}" data-i="${i}" data-f="vat" inputmode="numeric"><button class="mini clearamt" tabindex="-1" onclick="clearAmount(${i},'vat')" title="칸 지우기">✕</button></div></td>` +
       `<td class="del"><button class="mini danger" tabindex="-1" onclick="removeItemRow(${i})" title="행 삭제">−</button></td>`;
     tb.appendChild(tr);
   });
   tb.querySelectorAll('input').forEach(inp => {
     inp.addEventListener('input', onItemInput);
-    inp.addEventListener('blur', () => { renderItems(current()); renderTotals(current()); });
+    // blur: 표 전체를 다시 그리지 않고(=Tab 포커스 유지) 숫자 칸만 콤마 포맷
+    inp.addEventListener('blur', onItemBlur);
+    // 숫자 칸에서 키보드 '+' → ×1000 (0을 3개 추가)
+    inp.addEventListener('keydown', onAmountKeydown);
   });
   renderTotals(s);
+}
+// 이 행의 코드·합계 셀을 재렌더 없이 즉시 갱신
+function refreshItemRowCells(inputEl, it) {
+  const row = inputEl.closest('tr');
+  if (!row) return;
+  const roCell = row.querySelector('td.ro');
+  if (roCell) roCell.textContent = fmt(itemSum(it)) || '';
+  const codeCell = row.querySelector('td.code');
+  if (codeCell) codeCell.textContent = acctCode(it.acct);
 }
 function onItemInput(e) {
   const s = current();
   const i = +e.target.dataset.i, f = e.target.dataset.f;
   const it = s.items[i];
-  if (f === 'supply') {
-    it.supply = parseNum(e.target.value) || '';
-    if (it.vatAuto) it.vat = it.supply ? Math.round(parseNum(it.supply) * 0.1) : '';
-  } else if (f === 'vat') {
-    it.vat = e.target.value === '' ? '' : parseNum(e.target.value);
-    it.vatAuto = false;
+  if (f === 'supply' || f === 'vat') {
+    it[f] = e.target.value === '' ? '' : parseNum(e.target.value);
   } else {
     it[f] = e.target.value;
   }
+  refreshItemRowCells(e.target, it);
   renderTotals(s);
   persistList();
 }
-function setVat(i, mode) {
+function onItemBlur(e) {
+  const f = e.target.dataset.f;
+  if (f === 'supply' || f === 'vat') {
+    const it = current().items[+e.target.dataset.i];
+    e.target.value = fmt(it[f]); // 콤마 포맷 (DOM 교체 없이 값만 갱신 → Tab 이동 정상)
+  }
+}
+// 키보드 '+' 입력 시 현재 값에 0을 3개 추가 (1 → 1,000 → 1,000,000)
+function onAmountKeydown(e) {
+  const f = e.target.dataset.f;
+  if (e.key !== '+' || (f !== 'supply' && f !== 'vat')) return;
+  e.preventDefault(); // '+' 문자는 입력되지 않게
+  const s = current();
+  const it = s.items[+e.target.dataset.i];
+  const cur = parseNum(e.target.value);
+  if (!cur) return; // 빈 값/0이면 무시
+  it[f] = cur * 1000;
+  e.target.value = fmt(it[f]);
+  refreshItemRowCells(e.target, it);
+  renderTotals(s);
+  persistList();
+}
+// ✕ 버튼: 해당 금액 칸 비우기
+function clearAmount(i, field) {
   const s = current();
   const it = s.items[i];
-  if (mode === '10') { it.vatAuto = true; it.vat = it.supply ? Math.round(parseNum(it.supply) * 0.1) : ''; }
-  else { it.vatAuto = false; it.vat = it.supply === '' ? '' : 0; }
-  renderItems(s);
+  it[field] = '';
+  const inp = document.querySelector(`#itemRows input[data-i="${i}"][data-f="${field}"]`);
+  if (inp) { inp.value = ''; refreshItemRowCells(inp, it); }
+  renderTotals(s);
   persistList();
 }
 function removeItemRow(i) {
