@@ -286,7 +286,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>전표 관리 <span class="app-version">v20</span></h1>
+      <h1>전표 관리 <span class="app-version">v21</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="openNewSlipDialog()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -1703,11 +1703,14 @@ function withdrawalPrintTable(s) {
   const items = paddedRows(s.items, blankItem);
   const supply = s.items.reduce((t, it) => t + parseNum(it.supply), 0);
   const vat = s.items.reduce((t, it) => t + parseNum(it.vat), 0);
-  const rows = items.map((it, i) => `<tr>
+  const rows = items.map((it, i) => {
+    const hasAmount = it.supply !== '' || it.vat !== ''; // 공급가액·부가세 중 하나라도 입력되면 표시
+    return `<tr>
     <td class="no">${i + 1}</td><td class="acct">${esc(it.acct)}</td><td class="vendor">${esc(it.vendor)}</td>
-    <td class="amt">${it.supply === '' && it.vat === '' ? '' : fmt(itemSum(it))}</td>
-    <td class="amt">${fmt(it.supply)}</td><td class="amt">${it.supply === '' ? '' : fmt(parseNum(it.vat))}</td>
-  </tr>`).join('');
+    <td class="amt">${hasAmount ? fmt(itemSum(it)) : ''}</td>
+    <td class="amt">${hasAmount ? fmt(parseNum(it.supply)) : ''}</td><td class="amt">${hasAmount ? fmt(parseNum(it.vat)) : ''}</td>
+  </tr>`;
+  }).join('');
   return `<table class="p-items p-withdrawal">
     <tr><td colspan="2" class="p-lbl">기안일</td><td class="p-date">${fmtKoreanDate(s.draftDate)}</td>
       <td class="p-lbl">회계일</td><td colspan="2" class="p-date p-blue">${fmtKoreanDate(s.acctDate)}</td></tr>
