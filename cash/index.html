@@ -62,6 +62,7 @@
   #slipList .type-badge.badge-withdrawal, .slip-type-badge.badge-withdrawal { background: #fdecec; color: #c0392b; } /* 출금 - 연한 빨강 */
   #slipList .type-badge.badge-receipt,    .slip-type-badge.badge-receipt    { background: #e7f4e8; color: #2e7d32; } /* 입금 - 연한 초록 */
   #slipList .type-badge.badge-transfer,   .slip-type-badge.badge-transfer   { background: #e8eef7; color: #2b579a; } /* 대체 - 연한 파랑 */
+  #slipList .page-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 10px; background: #fff3e0; color: #b26a00; font-size: 11px; font-weight: bold; vertical-align: middle; }
   #slipList li.selectable { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
   #slipList li.selectable .sel-check { margin-top: 2px; width: 16px; height: 16px; flex: none; pointer-events: none; }
   #slipList li.selectable .li-body { flex: 1; min-width: 0; }
@@ -100,6 +101,8 @@
   #editorToolbar .toolbar-actions { display: flex; align-items: center; gap: 6px; }
   #editorToolbar .toolbar-nav button { min-width: 36px; padding-left: 9px; padding-right: 9px; }
   #slipPosition { min-width: 50px; color: #666; font-size: 12px; font-weight: bold; text-align: center; }
+  .page-info { font-size: 12px; font-weight: bold; color: var(--accent); background: var(--accent-light); padding: 2px 8px; border-radius: 10px; }
+  .page-info:empty { display: none; }
   #editor { max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid var(--bd-light); border-radius: 6px; padding: 24px; }
   #empty { text-align: center; color: #999; margin-top: 120px; }
 
@@ -223,6 +226,9 @@
     #printArea, #printArea * { visibility: visible; }
     #printArea { display: block; position: absolute; left: 0; top: 0; width: 100%; background: #fff; }
     @page { size: A4 portrait; margin: 14mm 12mm; }
+    /* 그룹 여러 페이지: 각 폼을 새 장으로 */
+    .p-sheet { break-after: page; page-break-after: always; }
+    .p-sheet:last-child { break-after: auto; page-break-after: auto; }
   }
   .p-sheet { font-family: "Malgun Gothic", "맑은 고딕", sans-serif; color: #000; background: #fff; }
 
@@ -286,7 +292,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>전표 관리 <span class="app-version">v21</span></h1>
+      <h1>전표 관리 <span class="app-version">v22</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="openNewSlipDialog()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -321,9 +327,11 @@
           <button id="nextSlipBtn" onclick="selectRelativeSlip(1)" title="다음 전표">▶</button>
         </div>
         <div class="toolbar-actions">
+          <span id="pageInfo" class="page-info" title="이 전표 그룹의 페이지"></span>
+          <button onclick="addPage()" title="같은 유형의 페이지를 이어서 추가합니다(한 그룹으로 묶여 연속 인쇄)">+ 페이지 추가</button>
           <button onclick="duplicateSlip()">전표 복제</button>
           <button onclick="copySlipText()" title="입력 내용을 탭으로 구분해 복사합니다">전체 복사</button>
-          <button class="primary" onclick="printSlip()">인쇄</button>
+          <button class="primary" onclick="printSlip()" id="printBtn">인쇄</button>
           <button onclick="resetSlip()">초기화</button>
           <button class="danger" onclick="deleteSlip()">삭제</button>
         </div>
@@ -729,6 +737,8 @@ function normalizeSlip(s) {
   if (!Array.isArray(s.attachments)) s.attachments = [];
   if (s.memo === undefined) s.memo = '';
   if (s.draftDateEnd === undefined) s.draftDateEnd = '';
+  if (s.groupId === undefined) s.groupId = '';   // 그룹(여러 페이지)으로 묶는 키. 빈 값이면 단독(1페이지)
+  if (!s.pageNo) s.pageNo = 1;                    // 그룹 내 페이지 순서 (1부터)
   return s;
 }
 function blankSlip(type = 'withdrawal') {
@@ -748,7 +758,16 @@ function blankSlip(type = 'withdrawal') {
     attachments: [],
     title: '',
     memo: '',
+    groupId: '',
+    pageNo: 1,
   });
+}
+// ===== 그룹(여러 페이지) 헬퍼 =====
+function slipGroupId(s) { return s.groupId || s.id; } // 단독 전표는 자기 id가 그룹키
+function groupPages(s) {
+  const gid = slipGroupId(s);
+  return slips.filter(x => slipGroupId(x) === gid)
+    .sort((a, b) => (a.pageNo || 1) - (b.pageNo || 1) || (a.createdAt || '').localeCompare(b.createdAt || ''));
 }
 function itemSum(it) { return parseNum(it.supply) + parseNum(it.vat); }
 function receiptTotal(s) { return s.receiptItems.reduce((t, it) => t + parseNum(it.amount), 0); }
@@ -786,7 +805,12 @@ function slipSearchText(s) {
     .join(' ').toLowerCase();
 }
 function sortedSlips() {
-  return [...slips].sort((a, b) => b.draftDate.localeCompare(a.draftDate) || b.id.localeCompare(a.id));
+  // 같은 그룹의 페이지들은 서로 붙어서 pageNo 순으로 정렬
+  return [...slips].sort((a, b) =>
+    b.draftDate.localeCompare(a.draftDate) ||
+    slipGroupId(a).localeCompare(slipGroupId(b)) ||
+    (a.pageNo || 1) - (b.pageNo || 1) ||
+    b.id.localeCompare(a.id));
 }
 function updateSlipNavigation() {
   const sorted = sortedSlips();
@@ -794,6 +818,24 @@ function updateSlipNavigation() {
   document.getElementById('slipPosition').textContent = index >= 0 ? `${index + 1} / ${sorted.length}` : `0 / ${sorted.length}`;
   document.getElementById('prevSlipBtn').disabled = index <= 0;
   document.getElementById('nextSlipBtn').disabled = index < 0 || index >= sorted.length - 1;
+  // 그룹 페이지 표시 + 인쇄 버튼 라벨
+  const s = current();
+  const pageInfo = document.getElementById('pageInfo');
+  const printBtn = document.getElementById('printBtn');
+  if (s) {
+    const pages = groupPages(s);
+    if (pages.length > 1) {
+      const m = pages.findIndex(p => p.id === s.id) + 1;
+      pageInfo.textContent = `📄 페이지 ${m}/${pages.length}`;
+      if (printBtn) printBtn.textContent = `인쇄 (${pages.length}장)`;
+    } else {
+      pageInfo.textContent = '';
+      if (printBtn) printBtn.textContent = '인쇄';
+    }
+  } else {
+    pageInfo.textContent = '';
+    if (printBtn) printBtn.textContent = '인쇄';
+  }
 }
 function selectRelativeSlip(direction) {
   const sorted = sortedSlips();
@@ -815,7 +857,10 @@ function renderList() {
     const li = document.createElement('li');
     const picked = selectMode && selectedIds.has(s.id);
     li.className = [s.id === currentId ? 'active' : '', selectMode ? 'selectable' : '', picked ? 'picked' : ''].filter(Boolean).join(' ');
-    const body = `<span class="date">${esc(s.draftDate)}</span><span class="type-badge badge-${slipType(s)}">${esc(slipTypeLabel(s))}</span>` +
+    const pages = groupPages(s);
+    const pageTag = pages.length > 1
+      ? `<span class="page-tag">📄 ${pages.findIndex(p => p.id === s.id) + 1}/${pages.length}</span>` : '';
+    const body = `<span class="date">${esc(s.draftDate)}</span><span class="type-badge badge-${slipType(s)}">${esc(slipTypeLabel(s))}</span>${pageTag}` +
       `<span class="sum">${won(slipTotal(s))}</span>` +
       `<div class="title">${esc(s.title?.trim() || '(제목 없음)')}</div>` +
       `<div class="desc">${esc(slipSummary(s))}</div>` +
@@ -1542,9 +1587,32 @@ function duplicateSlip() {
   copy.draftDate = todayIso();
   copy.acctDate = nextThursday(copy.draftDate);
   copy.attachments = []; // 첨부 이미지는 전표마다 새로 첨부
+  copy.groupId = '';     // 복제본은 독립 전표로
+  copy.pageNo = 1;
   slips.push(copy);
   persist();
   selectSlip(copy.id);
+}
+// 같은 유형의 페이지를 이어서 추가 (한 그룹으로 묶임). 날짜·제목은 이어받고 내용은 비움
+function addPage() {
+  const s = current();
+  if (!s) return;
+  const gid = slipGroupId(s);
+  if (!s.groupId) { s.groupId = gid; s.pageNo = s.pageNo || 1; } // 단독 전표를 그룹 첫 페이지로 승격
+  const pages = groupPages(s);
+  const maxNo = Math.max(...pages.map(p => p.pageNo || 1));
+  const np = blankSlip(slipType(s));
+  np.groupId = gid;
+  np.pageNo = maxNo + 1;
+  np.draftDate = s.draftDate;
+  np.draftDateEnd = s.draftDateEnd;
+  np.acctDate = s.acctDate;
+  np.title = s.title;
+  // 그룹의 마지막 페이지 바로 뒤에 삽입해 배열상 인접하게 유지
+  const idx = slips.indexOf(pages[pages.length - 1]);
+  slips.splice(idx + 1, 0, np);
+  persist();
+  selectSlip(np.id);
 }
 function tsvCell(value) {
   return String(value ?? '').replace(/\t/g, ' ').replace(/\r?\n/g, ' / ');
@@ -1636,15 +1704,26 @@ async function copySlipText() {
 function deleteSlip() {
   const s = current();
   if (!s) return;
-  if (!confirm(`${s.draftDate} ${slipTypeLabel(s)}(${won(slipTotal(s))})를 삭제할까요?`)) return;
+  const pages = groupPages(s);
+  const isGroup = pages.length > 1;
+  const label = isGroup
+    ? `${slipTypeLabel(s)} ${pages.findIndex(p => p.id === s.id) + 1}/${pages.length}페이지`
+    : `${s.draftDate} ${slipTypeLabel(s)}`;
+  if (!confirm(`${label}(${won(slipTotal(s))})를 삭제할까요?`)) return;
   s.attachments.forEach(imgDel);
+  // 그룹의 다른 페이지가 남으면 그 중 하나를 이어서 열기
+  const remaining = isGroup ? pages.filter(p => p.id !== s.id) : [];
   slips = slips.filter(x => x.id !== s.id);
-  currentId = null;
   persist();
-  document.getElementById('editorToolbar').style.display = 'none';
-  document.getElementById('editor').style.display = 'none';
-  document.getElementById('empty').style.display = 'block';
-  renderList();
+  if (remaining.length) {
+    selectSlip(remaining[0].id);
+  } else {
+    currentId = null;
+    document.getElementById('editorToolbar').style.display = 'none';
+    document.getElementById('editor').style.display = 'none';
+    document.getElementById('empty').style.display = 'block';
+    renderList();
+  }
 }
 /* 현재 전표의 내용만 비우기 (전표는 유지, 날짜는 오늘/다음 목요일로 초기화) */
 function resetSlip() {
@@ -1757,36 +1836,48 @@ function withdrawalDetailsPrint(s) {
   const rows = s.details.map((detail, i) => `<tr><td class="no">${i + 1}</td><td class="txt">${esc(detail)}</td></tr>`).join('');
   return `<table class="p-details"><tr class="p-hdr"><td class="no">번호</td><td>상세내역</td></tr>${rows}</table>`;
 }
-async function printSlip() {
-  const s = current();
-  if (!s) return;
-  if (slipType(s) === 'transfer') {
-    const totals = transferTotals(s);
-    if (totals.debit !== totals.credit && !confirm(`차변과 대변 합계가 ${won(Math.abs(totals.debit - totals.credit))}만큼 다릅니다. 그래도 인쇄할까요?`)) return;
-  }
-
+const PRINT_TITLES = { withdrawal: '출 금 전 표', receipt: '입 금 전 표', transfer: '대 체 전 표' };
+async function buildPrintSection(p) {
+  const type = slipType(p);
   let tableHtml;
-  if (slipType(s) === 'receipt') tableHtml = receiptPrintTable(s);
-  else if (slipType(s) === 'transfer') tableHtml = transferPrintTable(s);
-  else tableHtml = withdrawalPrintTable(s);
+  if (type === 'receipt') tableHtml = receiptPrintTable(p);
+  else if (type === 'transfer') tableHtml = transferPrintTable(p);
+  else tableHtml = withdrawalPrintTable(p);
 
   let attachHtml = '';
-  if (s.attachments.length) {
+  if (p.attachments.length) {
     const images = [];
-    for (const id of s.attachments) {
+    for (const id of p.attachments) {
       const data = await imgGet(id);
       if (data) images.push(`<img src="${data}" alt="첨부">`);
     }
     if (images.length) attachHtml = `<div class="p-attach">${images.join('')}</div>`;
   }
-
-  const titles = { withdrawal: '출 금 전 표', receipt: '입 금 전 표', transfer: '대 체 전 표' };
-  document.getElementById('printArea').innerHTML = `<div class="p-sheet">
-    ${printHead(titles[slipType(s)])}
+  return `<div class="p-sheet">
+    ${printHead(PRINT_TITLES[type])}
     ${tableHtml}
-    ${slipType(s) === 'withdrawal' ? withdrawalDetailsPrint(s) : ''}
+    ${type === 'withdrawal' ? withdrawalDetailsPrint(p) : ''}
     ${attachHtml}
   </div>`;
+}
+async function printSlip() {
+  const s = current();
+  if (!s) return;
+  const pages = groupPages(s); // 그룹이면 전체 페이지, 단독이면 자기 1장
+  // 대체전표 차대 검증 (페이지별)
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i];
+    if (slipType(p) === 'transfer') {
+      const totals = transferTotals(p);
+      if (totals.debit !== totals.credit) {
+        const where = pages.length > 1 ? `${i + 1}페이지: ` : '';
+        if (!confirm(`${where}차변과 대변 합계가 ${won(Math.abs(totals.debit - totals.credit))}만큼 다릅니다. 그래도 인쇄할까요?`)) return;
+      }
+    }
+  }
+  const sections = [];
+  for (const p of pages) sections.push(await buildPrintSection(p));
+  document.getElementById('printArea').innerHTML = sections.join('');
 
   const imgEls = [...document.querySelectorAll('#printArea img')];
   await Promise.all(imgEls.map(img => new Promise(res => {
