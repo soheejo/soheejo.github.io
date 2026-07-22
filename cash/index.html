@@ -229,6 +229,8 @@
     /* 그룹 여러 페이지: 각 폼을 새 장으로 */
     .p-sheet { break-after: page; page-break-after: always; }
     .p-sheet:last-child { break-after: auto; page-break-after: auto; }
+    /* 첨부 이미지 '분리' 시: 전표 다음 장으로 넘김 */
+    .p-attach.separated { break-before: page; page-break-before: always; }
   }
   .p-sheet { font-family: "Malgun Gothic", "맑은 고딕", sans-serif; color: #000; background: #fff; }
 
@@ -295,7 +297,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>전표 관리 <span class="app-version">v24</span></h1>
+      <h1>전표 관리 <span class="app-version">v25</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="openNewSlipDialog()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -457,7 +459,8 @@
       </div>
 
       <div class="section-title">첨부 이미지 (세금계산서 등)
-        <span class="hint">Ctrl+V 붙여넣기 · 드래그&드롭 · 파일 선택 — 인쇄 시 하단에 2열로 출력</span>
+        <label class="toggle"><input type="checkbox" id="separateAttach" onchange="toggleSeparateAttach()"> 분리 (다음 페이지로)</label>
+        <span class="hint">Ctrl+V 붙여넣기 · 드래그&드롭 · 파일 선택 — 인쇄 시 하단에 2열로 출력(분리 시 별도 페이지)</span>
       </div>
       <div id="attachZone">
         <div id="attachGrid"></div>
@@ -738,6 +741,7 @@ function normalizeSlip(s) {
   if (s.showDetails === undefined) s.showDetails = s.type === 'withdrawal';
   if (s.type !== 'withdrawal') s.showDetails = false;
   if (!Array.isArray(s.attachments)) s.attachments = [];
+  if (s.separateAttachments === undefined) s.separateAttachments = false; // 첨부 이미지를 별도 페이지로 인쇄
   if (s.memo === undefined) s.memo = '';
   if (s.draftDateEnd === undefined) s.draftDateEnd = '';
   if (s.groupId === undefined) s.groupId = '';   // 그룹(여러 페이지)으로 묶는 키. 빈 값이면 단독(1페이지)
@@ -759,6 +763,7 @@ function blankSlip(type = 'withdrawal') {
     details: ['', '', ''],
     showDetails: type === 'withdrawal',
     attachments: [],
+    separateAttachments: false,
     title: '',
     memo: '',
     groupId: '',
@@ -949,6 +954,7 @@ function selectSlip(id) {
   document.getElementById('createdAt').textContent = fmtDateTime(s.createdAt);
   document.getElementById('memo').value = s.memo;
   document.getElementById('showDetails').checked = s.showDetails;
+  document.getElementById('separateAttach').checked = !!s.separateAttachments;
   showTypeEditor(s);
   renderAttachments(s);
   renderList();
@@ -1228,6 +1234,11 @@ function toggleShowDetails() {
   const s = current();
   s.showDetails = document.getElementById('showDetails').checked;
   document.getElementById('detailsWrap').style.display = s.showDetails ? 'block' : 'none';
+  persistList();
+}
+function toggleSeparateAttach() {
+  const s = current();
+  s.separateAttachments = document.getElementById('separateAttach').checked;
   persistList();
 }
 
@@ -1681,7 +1692,7 @@ function buildSlipCopyText(s) {
   }
   lines.push([]);
   lines.push(['메모', s.memo || '']);
-  lines.push(['첨부 이미지', `${(s.attachments || []).length}개`]);
+  lines.push(['첨부 이미지', `${(s.attachments || []).length}개${s.separateAttachments ? ' (별도 페이지)' : ''}`]);
 
   return lines.map(row => row.map(tsvCell).join('\t')).join('\n');
 }
@@ -1754,6 +1765,7 @@ function resetSlip() {
   s.details = ['', '', ''];
   s.showDetails = slipType(s) === 'withdrawal';
   s.attachments = [];
+  s.separateAttachments = false;
   s.title = '';
   s.memo = '';
   persist();
@@ -1864,7 +1876,7 @@ async function buildPrintSection(p) {
       const data = await imgGet(id);
       if (data) images.push(`<img src="${data}" alt="첨부">`);
     }
-    if (images.length) attachHtml = `<div class="p-attach">${images.join('')}</div>`;
+    if (images.length) attachHtml = `<div class="p-attach${p.separateAttachments ? ' separated' : ''}">${images.join('')}</div>`;
   }
   return `<div class="p-sheet">
     ${printHead(PRINT_TITLES[type])}
