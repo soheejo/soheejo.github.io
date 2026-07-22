@@ -269,7 +269,7 @@
   /* 출금전표: 열 너비 고정 + 계정과목이 길면 줄바꿈 없이 잘라냄(엑셀처럼) */
   table.p-items.p-withdrawal { table-layout: fixed; }
   table.p-items.p-withdrawal td.acct { color: var(--form-blue); white-space: nowrap; overflow: hidden; text-overflow: clip; }
-  table.p-items.p-withdrawal td.vendor { overflow: hidden; }
+  table.p-items.p-withdrawal td.vendor { white-space: nowrap; overflow: hidden; text-overflow: clip; }
   table.p-items td.vendor { font-weight: bold; }
   table.p-items td.amt { text-align: right; font-weight: bold; width: 13.5%; }
   table.p-items tr.p-total td { border-top: 4px double #000; font-weight: bold; background: #f2f2f2; }
@@ -295,7 +295,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>전표 관리 <span class="app-version">v23</span></h1>
+      <h1>전표 관리 <span class="app-version">v24</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="openNewSlipDialog()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -1009,6 +1009,15 @@ function onItemInput(e) {
   const it = s.items[i];
   if (f === 'supply' || f === 'vat') {
     it[f] = e.target.value === '' ? '' : parseNum(e.target.value);
+  } else if (f === 'vendor') {
+    // 거래처는 무조건 대문자 (영문만 변환, 한글·숫자는 그대로)
+    const up = e.target.value.toUpperCase();
+    if (up !== e.target.value) {
+      const pos = e.target.selectionStart;
+      e.target.value = up;
+      e.target.setSelectionRange(pos, pos);
+    }
+    it.vendor = up;
   } else {
     it[f] = e.target.value;
   }
