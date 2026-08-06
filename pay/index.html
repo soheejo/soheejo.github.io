@@ -63,6 +63,14 @@
   }
   #selectBar label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
   #selectCount { color: #666; font-weight: bold; }
+  /* 백업 안내 배너 */
+  #backupWarn {
+    display: none; padding: 8px 16px; background: #fff4e5; border-bottom: 1px solid #f0d3a8;
+    color: #8a5a00; font-size: 12px; line-height: 1.5;
+  }
+  #backupWarn button { margin-top: 6px; }
+  #backupInfo { width: 100%; margin-top: 4px; color: #888; font-size: 11px; }
+  #backupInfo b { color: #555; }
   #slipList .title { font-weight: bold; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #slipList .desc { color: #777; font-size: 12px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #slipList .created { color: #999; font-size: 11px; margin-top: 4px; }
@@ -153,6 +161,24 @@
   table.items td.no { text-align: center; width: 34px; color: #666; }
   table.items td.code { text-align: center; width: 44px; color: #999; font-size: 12px; }
   table.items td.del { text-align: center; width: 30px; border: none; }
+  table.items td.rowops, table.details td.rowops { text-align: center; white-space: nowrap; border: none; width: 34px; }
+  .rowops button.rowmenu-btn { padding: 2px 6px; font-size: 13px; line-height: 1; color: #777; }
+  .rowops button.rowmenu-btn:hover { color: var(--accent); }
+  /* 행 메뉴 (햄버거) */
+  #rowMenu {
+    position: fixed; display: none; z-index: 100; min-width: 156px; padding: 4px;
+    background: #fff; border: 1px solid var(--bd-light); border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  }
+  #rowMenu button {
+    display: block; width: 100%; text-align: left; border: none; background: none;
+    padding: 7px 10px; font-size: 13px; border-radius: 4px;
+  }
+  #rowMenu button:hover:not(:disabled) { background: var(--accent-light); }
+  #rowMenu button:disabled { opacity: 0.35; cursor: default; }
+  #rowMenu button.danger:hover:not(:disabled) { background: #fdecea; }
+  #rowMenu .sep { border-top: 1px solid #eee; margin: 4px 0; }
+  #rowMenu .menu-hint { padding: 2px 10px 5px; color: #aaa; font-size: 11px; }
   table.items tr.total td { background: var(--accent-light); font-weight: bold; text-align: right; padding: 7px 6px; }
   table.items tr.total td:first-child { text-align: center; }
   .amt-wrap { display: flex; align-items: center; gap: 2px; }
@@ -270,7 +296,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>출금전표 관리 <span class="app-version">v26</span></h1>
+      <h1>출금전표 관리 <span class="app-version">v28</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="newSlip()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -286,13 +312,16 @@
       <button class="mini danger" onclick="deleteSelected()">선택 삭제</button>
       <button class="mini" onclick="toggleSelectMode()">취소</button>
     </div>
+    <div id="backupWarn"></div>
     <ul id="slipList"></ul>
     <footer>
       <button class="mini" onclick="toggleSelectMode()" id="selectModeBtn">목록 선택</button>
       <button class="mini" onclick="exportJson()">백업 (JSON)</button>
       <button class="mini" onclick="importJson()">가져오기</button>
+      <button class="mini" id="autoBackupBtn" onclick="toggleAutoBackup()" title="백업 파일을 하나 지정해 두면 변경될 때마다 자동으로 덮어씁니다">자동 백업</button>
       <button class="mini danger" onclick="resetAll()">전체 초기화</button>
       <span id="slipCount" style="margin-left:auto;color:#888"></span>
+      <span id="backupInfo"></span>
     </footer>
   </nav>
 
@@ -343,7 +372,7 @@
             <th style="width:120px">합계</th>
             <th style="width:135px">공급가액</th>
             <th style="width:135px">부가세</th>
-            <th style="width:30px"></th>
+            <th style="width:34px"></th>
           </tr>
         </thead>
         <tbody id="itemRows"></tbody>
@@ -422,6 +451,16 @@
 <datalist id="acctList"></datalist>
 <datalist id="bankAccountList"></datalist>
 
+<!-- 행 메뉴 (햄버거) -->
+<div id="rowMenu">
+  <button id="rmUp" onclick="rowMenuAction('up')">↑&nbsp; 위로 이동</button>
+  <button id="rmDown" onclick="rowMenuAction('down')">↓&nbsp; 아래로 이동</button>
+  <div class="menu-hint">이동은 메뉴가 열린 채로 반복됩니다</div>
+  <div class="sep"></div>
+  <button onclick="rowMenuAction('clear')">⌫&nbsp; 이 행 내용만 지우기</button>
+  <button class="danger" onclick="rowMenuAction('remove')">−&nbsp; 이 행 삭제</button>
+</div>
+
 <!-- 인쇄 전용 영역 -->
 <div id="printArea"></div>
 
@@ -432,7 +471,10 @@
 const LS_SLIPS = 'wslips_v1';
 const LS_ACCTS = 'waccts_v1';
 const LS_BANK_ACCOUNTS = 'wbank_accounts_v1';
+const LS_LAST_BACKUP = 'wlast_backup_v1';
 const IDB_NAME = 'wslip_images';
+const IDB_META = 'wslip_meta';         // 자동 백업 파일 핸들 보관용 (이미지 DB와 분리)
+const BACKUP_WARN_DAYS = 7;            // 이 기간 넘게 백업이 없으면 안내 배너 표시
 
 const DEFAULT_ACCTS = [
   ["보통예금",103],["외상매출금",108],["대손충당금",109],["선급금",131],["선급비용",133],
@@ -467,6 +509,7 @@ function load(key, fallback) {
 function persist() {
   localStorage.setItem(LS_SLIPS, JSON.stringify(slips));
   flashSaved();
+  scheduleAutoBackup();   // 자동 백업 파일이 지정돼 있으면 갱신
 }
 function flashSaved() { flashStatus('저장됨'); }
 function flashStatus(message) {
@@ -723,6 +766,7 @@ function renderList() {
   document.getElementById('slipCount').textContent = `전표 ${list.length}/${slips.length}건`;
   updateSlipNavigation();
   updateSelectBar();
+  renderBackupStatus();
 }
 
 /* ===== 목록 다중 선택·삭제 ===== */
@@ -796,6 +840,107 @@ function selectSlip(id) {
 }
 function current() { return slips.find(x => x.id === currentId); }
 
+/* ===== 행 조작 (순서 이동 · 내용만 지우기 · 삭제) ===== */
+const ROW_KINDS = {
+  item:   { get: s => s.items,   blank: () => blankItem(), render: s => renderItems(s) },
+  detail: { get: s => s.details, blank: () => '',          render: s => renderDetails(s) },
+};
+// 행 끝 햄버거 버튼 — 누르면 순서 이동·내용 지우기·삭제 메뉴가 열림
+function rowOpsCell(kind, i, len, removeFn) {
+  return `<td class="rowops">` +
+    `<button class="rowmenu-btn" tabindex="-1" data-rowkind="${kind}" data-rowindex="${i}"` +
+    ` onclick="openRowMenu(event,'${kind}',${i},'${removeFn}')" title="행 메뉴 (순서 이동 · 내용 지우기 · 삭제)">☰</button>` +
+  `</td>`;
+}
+
+/* --- 행 메뉴 --- */
+let rowMenuState = null;
+function rowMenuEl() { return document.getElementById('rowMenu'); }
+function isRowMenuOpen() { const m = rowMenuEl(); return !!m && m.style.display === 'block'; }
+function openRowMenu(ev, kind, i, removeFn) {
+  ev.stopPropagation();
+  if (rowMenuState && rowMenuState.kind === kind && rowMenuState.index === i && isRowMenuOpen()) {
+    closeRowMenu();   // 같은 버튼을 다시 누르면 닫기
+    return;
+  }
+  rowMenuState = { kind, index: i, removeFn };
+  positionRowMenu(ev.currentTarget);
+}
+function positionRowMenu(btn) {
+  const m = rowMenuEl();
+  if (!m || !btn) return;
+  m.style.display = 'block';
+  updateRowMenuDisabled();
+  const r = btn.getBoundingClientRect();
+  let left = r.right - m.offsetWidth;                 // 버튼 오른쪽에 맞춰 정렬
+  let top = r.bottom + 4;
+  if (top + m.offsetHeight > window.innerHeight - 8) top = Math.max(8, r.top - m.offsetHeight - 4);
+  if (left < 8) left = 8;
+  m.style.left = left + 'px';
+  m.style.top = top + 'px';
+}
+function updateRowMenuDisabled() {
+  if (!rowMenuState) return;
+  const s = current();
+  const arr = s ? ROW_KINDS[rowMenuState.kind].get(s) : [];
+  const len = Array.isArray(arr) ? arr.length : 0;
+  const up = document.getElementById('rmUp'), down = document.getElementById('rmDown');
+  if (up) up.disabled = rowMenuState.index <= 0;
+  if (down) down.disabled = rowMenuState.index >= len - 1;
+}
+function closeRowMenu() {
+  const m = rowMenuEl();
+  if (m) m.style.display = 'none';
+  rowMenuState = null;
+}
+function rowMenuAction(action) {
+  if (!rowMenuState) return;
+  const { kind, index, removeFn } = rowMenuState;
+  if (action === 'up' || action === 'down') {
+    const s = current();
+    if (!s) return closeRowMenu();
+    const arr = ROW_KINDS[kind].get(s);
+    const j = index + (action === 'up' ? -1 : 1);
+    if (j < 0 || j >= arr.length) return;
+    rowMove(kind, index, action === 'up' ? -1 : 1);
+    rowMenuState.index = j;                            // 옮겨간 자리로 메뉴가 따라감
+    const btn = document.querySelector(`.rowmenu-btn[data-rowkind="${kind}"][data-rowindex="${j}"]`);
+    if (btn) positionRowMenu(btn); else closeRowMenu();
+    return;                                            // 메뉴는 열어둔 채 → 연속 이동 가능
+  }
+  if (action === 'clear') rowClear(kind, index);
+  else if (action === 'remove') window[removeFn](index);
+  closeRowMenu();
+}
+document.addEventListener('click', e => {
+  if (!isRowMenuOpen()) return;
+  if (e.target.closest('#rowMenu') || e.target.closest('.rowmenu-btn')) return;
+  closeRowMenu();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeRowMenu(); });
+window.addEventListener('resize', closeRowMenu);
+document.addEventListener('scroll', () => { if (isRowMenuOpen()) closeRowMenu(); }, true);
+function rowMove(kind, i, dir) {
+  const s = current();
+  if (!s) return;
+  const k = ROW_KINDS[kind];
+  const arr = k.get(s);
+  const j = i + dir;
+  if (j < 0 || j >= arr.length) return;
+  [arr[i], arr[j]] = [arr[j], arr[i]];
+  k.render(s);
+  persistList();
+}
+function rowClear(kind, i) {
+  const s = current();
+  if (!s) return;
+  const k = ROW_KINDS[kind];
+  const arr = k.get(s);
+  arr[i] = k.blank();
+  k.render(s);
+  persistList();
+}
+
 function renderItems(s) {
   const tb = document.getElementById('itemRows');
   tb.innerHTML = '';
@@ -809,7 +954,7 @@ function renderItems(s) {
       `<td class="ro">${fmt(itemSum(it)) || ''}</td>` +
       `<td><div class="amt-wrap"><input class="num" value="${fmt(it.supply)}" data-i="${i}" data-f="supply" inputmode="numeric"><button class="mini clearamt" tabindex="-1" onclick="clearAmount(${i},'supply')" title="칸 지우기">✕</button></div></td>` +
       `<td><div class="amt-wrap"><input class="num" value="${fmt(it.vat)}" data-i="${i}" data-f="vat" inputmode="numeric"><button class="mini clearamt" tabindex="-1" onclick="clearAmount(${i},'vat')" title="칸 지우기">✕</button></div></td>` +
-      `<td class="del"><button class="mini danger" tabindex="-1" onclick="removeItemRow(${i})" title="행 삭제">−</button></td>`;
+      rowOpsCell('item', i, s.items.length, 'removeItemRow');
     tb.appendChild(tr);
   });
   tb.querySelectorAll('input').forEach(inp => {
@@ -916,7 +1061,7 @@ function renderDetails(s) {
     tr.innerHTML =
       `<td class="no">${i + 1}</td>` +
       `<td><input value="${esc(d)}" data-i="${i}" list="bankAccountList" autocomplete="off" placeholder="상호/예금주 입력 → 은행 계좌번호 예금주 | PO번호 (End User)"></td>` +
-      `<td class="del"><button class="mini danger" tabindex="-1" onclick="removeDetailRow(${i})" title="행 삭제">−</button></td>`;
+      rowOpsCell('detail', i, s.details.length, 'removeDetailRow');
     tb.appendChild(tr);
   });
   tb.querySelectorAll('input').forEach(inp => {
@@ -1572,8 +1717,164 @@ function saveAccts() {
   if (currentId) renderItems(current());
 }
 
+/* ===== 저장소 보호 · 백업 상태 · 자동 백업 ===== */
+// 브라우저가 저장 공간을 임의로 비우지 않도록 요청 (지원 브라우저에서만 동작)
+function requestPersistentStorage() {
+  try {
+    navigator.storage?.persist?.().then(granted => {
+      const el = document.getElementById('backupInfo');
+      if (el) el.dataset.persisted = granted ? 'yes' : 'no';
+    }).catch(() => {});
+  } catch {}
+}
+function markBackupDone() {
+  localStorage.setItem(LS_LAST_BACKUP, new Date().toISOString());
+  renderBackupStatus();
+}
+function daysSinceBackup() {
+  const raw = localStorage.getItem(LS_LAST_BACKUP);
+  if (!raw) return null;
+  const t = new Date(raw).getTime();
+  if (isNaN(t)) return null;
+  return (Date.now() - t) / 86400000;
+}
+function renderBackupStatus() {
+  const raw = localStorage.getItem(LS_LAST_BACKUP);
+  const days = daysSinceBackup();
+  const info = document.getElementById('backupInfo');
+  if (info) {
+    const auto = autoBackupHandle ? ' · 자동 백업 켜짐' : '';
+    info.innerHTML = raw
+      ? `마지막 백업 <b>${esc(fmtDateTime(raw))}</b>${auto}`
+      : `<b>백업 기록 없음</b>${auto}`;
+  }
+  const warn = document.getElementById('backupWarn');
+  if (!warn) return;
+  const needWarn = slips.length > 0 && !autoBackupHandle && (days === null || days > BACKUP_WARN_DAYS);
+  if (needWarn) {
+    warn.innerHTML = (days === null
+      ? '⚠️ 아직 한 번도 백업하지 않았습니다.'
+      : `⚠️ 마지막 백업이 ${Math.floor(days)}일 전입니다.`) +
+      '<br>이 데이터는 <b>이 브라우저 안에만</b> 저장됩니다. 파일로 백업해 두세요.' +
+      '<br><button class="mini" onclick="exportJson()">지금 백업</button>' +
+      ' <button class="mini" onclick="document.getElementById(\'backupWarn\').style.display=\'none\'">나중에</button>';
+    warn.style.display = 'block';
+  } else {
+    warn.style.display = 'none';
+  }
+}
+
+/* 자동 백업: 파일을 하나 지정해 두면 변경될 때마다 그 파일을 덮어씀 (File System Access API) */
+let autoBackupHandle = null;
+let autoBackupTimer = null;
+const autoBackupSupported = typeof window.showSaveFilePicker === 'function';
+
+function metaDb() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open(IDB_META, 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('meta');
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function metaSet(key, value) {
+  try {
+    const d = await metaDb();
+    await new Promise((res, rej) => {
+      const tx = d.transaction('meta', 'readwrite');
+      tx.objectStore('meta').put(value, key);
+      tx.oncomplete = res;
+      tx.onerror = () => rej(tx.error);
+    });
+  } catch {}
+}
+async function metaGet(key) {
+  try {
+    const d = await metaDb();
+    return await new Promise((res, rej) => {
+      const rq = d.transaction('meta').objectStore('meta').get(key);
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => rej(rq.error);
+    });
+  } catch { return undefined; }
+}
+function updateAutoBackupBtn() {
+  const btn = document.getElementById('autoBackupBtn');
+  if (!btn) return;
+  if (!autoBackupSupported) {
+    btn.textContent = '자동 백업 (미지원)';
+    btn.disabled = true;
+    btn.title = '이 브라우저(또는 파일을 여는 방식)에서는 자동 파일 백업을 쓸 수 없습니다. [백업 (JSON)]을 이용해 주세요.';
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = autoBackupHandle ? '자동 백업 ✅' : '자동 백업';
+  btn.title = autoBackupHandle
+    ? '자동 백업이 켜져 있습니다. 누르면 해제합니다.'
+    : '백업 파일을 하나 지정해 두면 변경될 때마다 자동으로 덮어씁니다.';
+}
+async function toggleAutoBackup() {
+  if (!autoBackupSupported) return;
+  if (autoBackupHandle) {
+    if (!confirm('자동 백업을 해제할까요? (지정한 파일은 그대로 남습니다)')) return;
+    autoBackupHandle = null;
+    await metaSet('autoBackupHandle', null);
+    updateAutoBackupBtn();
+    renderBackupStatus();
+    return;
+  }
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: `출금전표_자동백업_${todayIso()}.json`,
+      types: [{ description: 'JSON 백업 파일', accept: { 'application/json': ['.json'] } }],
+    });
+    autoBackupHandle = handle;
+    await metaSet('autoBackupHandle', handle);
+    updateAutoBackupBtn();
+    await runAutoBackup();          // 지정 직후 한 번 저장
+    alert('자동 백업을 켰습니다.\n이제 전표를 고칠 때마다 이 파일이 자동으로 갱신됩니다.');
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;   // 사용자가 취소
+    alert('자동 백업을 켜지 못했습니다: ' + (e?.message || e));
+  }
+}
+function scheduleAutoBackup() {
+  if (!autoBackupHandle) return;
+  clearTimeout(autoBackupTimer);
+  autoBackupTimer = setTimeout(runAutoBackup, 2000);   // 연속 입력은 묶어서 한 번만 기록
+}
+async function runAutoBackup() {
+  if (!autoBackupHandle) return;
+  try {
+    const perm = await autoBackupHandle.queryPermission?.({ mode: 'readwrite' });
+    if (perm && perm !== 'granted') {
+      const asked = await autoBackupHandle.requestPermission?.({ mode: 'readwrite' });
+      if (asked !== 'granted') return;   // 권한이 없으면 조용히 건너뜀 (기본 저장은 정상 동작)
+    }
+    const writable = await autoBackupHandle.createWritable();
+    await writable.write(JSON.stringify(await buildBackupPayload(), null, 2));
+    await writable.close();
+    markBackupDone();
+    flashStatus('자동 백업됨');
+  } catch (e) {
+    console.warn('자동 백업 실패:', e);
+  }
+}
+async function restoreAutoBackup() {
+  if (!autoBackupSupported) return;
+  const handle = await metaGet('autoBackupHandle');
+  if (!handle) return;
+  try {
+    const perm = await handle.queryPermission?.({ mode: 'readwrite' });
+    if (perm === 'granted') autoBackupHandle = handle;   // 권한이 살아 있으면 자동 재개
+  } catch {}
+  updateAutoBackupBtn();
+  renderBackupStatus();
+}
+
 /* ===== 백업 ===== */
-async function exportJson() {
+// 백업 파일에 담을 내용 (전표 + 계정과목 + 통장계좌 + 첨부 이미지)
+async function buildBackupPayload() {
   const images = {};
   for (const s of slips) {
     for (const id of (s.attachments || [])) {
@@ -1581,12 +1882,16 @@ async function exportJson() {
       if (d) images[id] = d;
     }
   }
-  const blob = new Blob([JSON.stringify({ slips, accts, bankAccounts, images }, null, 2)], { type: 'application/json' });
+  return { slips, accts, bankAccounts, images };
+}
+async function exportJson() {
+  const blob = new Blob([JSON.stringify(await buildBackupPayload(), null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `출금전표_백업_${todayIso()}.json`;
   a.click();
   URL.revokeObjectURL(a.href);
+  markBackupDone();
 }
 // 선택한 전표만 백업 (선택 모드에서 사용)
 async function exportSelectedJson() {
@@ -1702,6 +2007,9 @@ async function applyImport(mode) {
 refreshAcctDatalist();
 refreshBankAccountDatalist();
 renderList();
+requestPersistentStorage();
+updateAutoBackupBtn();
+restoreAutoBackup();
 </script>
 </body>
 </html>
