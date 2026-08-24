@@ -296,7 +296,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>출금전표 관리 <span class="app-version">v28</span></h1>
+      <h1>출금전표 관리 <span class="app-version">v29</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="newSlip()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -387,6 +387,7 @@
         </tfoot>
       </table>
       <div class="row-tools">
+        <button class="mini" onclick="rowSortDesc('item')" title="합계가 큰 행부터 정렬합니다 (빈 행은 아래로)">⇅ 합계 내림차순</button>
         <button class="mini" onclick="addItemRow()">+ 항목 추가</button>
       </div>
 
@@ -457,6 +458,7 @@
   <button id="rmDown" onclick="rowMenuAction('down')">↓&nbsp; 아래로 이동</button>
   <div class="menu-hint">이동은 메뉴가 열린 채로 반복됩니다</div>
   <div class="sep"></div>
+  <button onclick="rowMenuAction('duplicate')">⧉&nbsp; 이 행 복제</button>
   <button onclick="rowMenuAction('clear')">⌫&nbsp; 이 행 내용만 지우기</button>
   <button class="danger" onclick="rowMenuAction('remove')">−&nbsp; 이 행 삭제</button>
 </div>
@@ -842,8 +844,9 @@ function current() { return slips.find(x => x.id === currentId); }
 
 /* ===== 행 조작 (순서 이동 · 내용만 지우기 · 삭제) ===== */
 const ROW_KINDS = {
-  item:   { get: s => s.items,   blank: () => blankItem(), render: s => renderItems(s) },
-  detail: { get: s => s.details, blank: () => '',          render: s => renderDetails(s) },
+  // amount: 정렬 기준 금액 (없으면 정렬 불가)
+  item:   { get: s => s.items,   blank: () => blankItem(), render: s => renderItems(s), amount: it => itemSum(it) },
+  detail: { get: s => s.details, blank: () => '',          render: s => renderDetails(s), amount: null },
 };
 // 행 끝 햄버거 버튼 — 누르면 순서 이동·내용 지우기·삭제 메뉴가 열림
 function rowOpsCell(kind, i, len, removeFn) {
@@ -908,7 +911,8 @@ function rowMenuAction(action) {
     if (btn) positionRowMenu(btn); else closeRowMenu();
     return;                                            // 메뉴는 열어둔 채 → 연속 이동 가능
   }
-  if (action === 'clear') rowClear(kind, index);
+  if (action === 'duplicate') rowDuplicate(kind, index);
+  else if (action === 'clear') rowClear(kind, index);
   else if (action === 'remove') window[removeFn](index);
   closeRowMenu();
 }
@@ -939,6 +943,29 @@ function rowClear(kind, i) {
   arr[i] = k.blank();
   k.render(s);
   persistList();
+}
+// 이 행을 바로 아래에 복제
+function rowDuplicate(kind, i) {
+  const s = current();
+  if (!s) return;
+  const k = ROW_KINDS[kind];
+  const arr = k.get(s);
+  const src = arr[i];
+  arr.splice(i + 1, 0, (src && typeof src === 'object') ? JSON.parse(JSON.stringify(src)) : src);
+  k.render(s);
+  persistList();
+}
+// 금액이 큰 행부터 내림차순 정렬 (빈 행은 0이므로 자연히 맨 아래로)
+function rowSortDesc(kind) {
+  const s = current();
+  if (!s) return;
+  const k = ROW_KINDS[kind];
+  if (!k.amount) return;
+  k.get(s).sort((a, b) => k.amount(b) - k.amount(a));   // 금액이 같으면 기존 순서 유지
+  k.render(s);
+  closeRowMenu();
+  persistList();
+  flashStatus('금액 내림차순 정렬됨');
 }
 
 function renderItems(s) {
@@ -1278,7 +1305,7 @@ function bankAccountsFromSheets(sheets) {
         };
         if (!account.businessName && !account.owner && !account.accountNumber) continue;
         if (!account.accountNumber || (!account.businessName && !account.owner)) continue;
-        const key = [account.businessName, account.bank, account.accountNumber, account.owner].join(' ');
+        const key = [account.businessName, account.bank, account.accountNumber, account.owner].join('\u0000');
         if (seen.has(key)) continue;
         seen.add(key);
         accounts.push(account);
