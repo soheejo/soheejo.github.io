@@ -323,7 +323,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>전표 관리 <span class="app-version">v29</span></h1>
+      <h1>전표 관리 <span class="app-version">v30</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="openNewSlipDialog()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -558,7 +558,9 @@
 <div id="rowMenu">
   <button id="rmUp" onclick="rowMenuAction('up')">↑&nbsp; 위로 이동</button>
   <button id="rmDown" onclick="rowMenuAction('down')">↓&nbsp; 아래로 이동</button>
-  <div class="menu-hint">이동은 메뉴가 열린 채로 반복됩니다</div>
+  <button id="rmTop" onclick="rowMenuAction('top')">⤒&nbsp; 맨 위로</button>
+  <button id="rmBottom" onclick="rowMenuAction('bottom')">⤓&nbsp; 맨 아래로</button>
+  <div class="menu-hint">이동해도 메뉴는 그대로 열려 있습니다</div>
   <div class="sep"></div>
   <button onclick="rowMenuAction('duplicate')">⧉&nbsp; 이 행 복제</button>
   <button onclick="rowMenuAction('clear')">⌫&nbsp; 이 행 내용만 지우기</button>
@@ -1076,9 +1078,12 @@ function updateRowMenuDisabled() {
   const s = current();
   const arr = s ? ROW_KINDS[rowMenuState.kind].get(s) : [];
   const len = Array.isArray(arr) ? arr.length : 0;
-  const up = document.getElementById('rmUp'), down = document.getElementById('rmDown');
-  if (up) up.disabled = rowMenuState.index <= 0;
-  if (down) down.disabled = rowMenuState.index >= len - 1;
+  const atTop = rowMenuState.index <= 0;
+  const atBottom = rowMenuState.index >= len - 1;
+  for (const [id, off] of [['rmUp', atTop], ['rmTop', atTop], ['rmDown', atBottom], ['rmBottom', atBottom]]) {
+    const el = document.getElementById(id);
+    if (el) el.disabled = off;
+  }
 }
 function closeRowMenu() {
   const m = rowMenuEl();
@@ -1088,13 +1093,16 @@ function closeRowMenu() {
 function rowMenuAction(action) {
   if (!rowMenuState) return;
   const { kind, index, removeFn } = rowMenuState;
-  if (action === 'up' || action === 'down') {
+  if (action === 'up' || action === 'down' || action === 'top' || action === 'bottom') {
     const s = current();
     if (!s) return closeRowMenu();
     const arr = ROW_KINDS[kind].get(s);
-    const j = index + (action === 'up' ? -1 : 1);
-    if (j < 0 || j >= arr.length) return;
-    rowMove(kind, index, action === 'up' ? -1 : 1);
+    const j = action === 'up' ? index - 1
+            : action === 'down' ? index + 1
+            : action === 'top' ? 0
+            : arr.length - 1;
+    if (j < 0 || j >= arr.length || j === index) return;
+    rowMoveTo(kind, index, j);
     rowMenuState.index = j;                            // 옮겨간 자리로 메뉴가 따라감
     const btn = document.querySelector(`.rowmenu-btn[data-rowkind="${kind}"][data-rowindex="${j}"]`);
     if (btn) positionRowMenu(btn); else closeRowMenu();
@@ -1113,17 +1121,19 @@ document.addEventListener('click', e => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeRowMenu(); });
 window.addEventListener('resize', closeRowMenu);
 document.addEventListener('scroll', () => { if (isRowMenuOpen()) closeRowMenu(); }, true);
-function rowMove(kind, i, dir) {
+// 행을 지정한 자리로 옮김 (한 칸 이동 · 맨 위 · 맨 아래 공용)
+function rowMoveTo(kind, from, to) {
   const s = current();
   if (!s) return;
   const k = ROW_KINDS[kind];
   const arr = k.get(s);
-  const j = i + dir;
-  if (j < 0 || j >= arr.length) return;
-  [arr[i], arr[j]] = [arr[j], arr[i]];
+  if (to < 0 || to >= arr.length || to === from) return;
+  const [row] = arr.splice(from, 1);
+  arr.splice(to, 0, row);
   k.render(s);
   persistList();
 }
+function rowMove(kind, i, dir) { rowMoveTo(kind, i, i + dir); }
 function rowClear(kind, i) {
   const s = current();
   if (!s) return;
@@ -1150,7 +1160,17 @@ function rowSortDesc(kind) {
   if (!s) return;
   const k = ROW_KINDS[kind];
   if (!k.amount) return;
-  k.get(s).sort((a, b) => k.amount(b) - k.amount(a));   // 금액이 같으면 기존 순서 유지
+  const arr = k.get(s);
+  const filled = arr.filter(r => k.amount(r) > 0).length;
+  if (!filled) { alert('정렬할 금액이 입력된 행이 없습니다.'); return; }
+  const msg = [
+    '금액이 큰 행부터 다시 정렬합니다.',
+    '(금액이 있는 행 ' + filled + '개 · 빈 행은 맨 아래로)',
+    '',
+    '지금의 행 순서는 되돌릴 수 없습니다. 계속할까요?'
+  ].join(String.fromCharCode(10));
+  if (!confirm(msg)) return;
+  arr.sort((a, b) => k.amount(b) - k.amount(a));   // 금액이 같으면 기존 순서 유지
   k.render(s);
   closeRowMenu();
   persistList();
