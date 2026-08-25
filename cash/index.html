@@ -174,6 +174,14 @@
   table.items td.rowops, table.details td.rowops { text-align: center; white-space: nowrap; border: none; width: 34px; }
   .rowops button.rowmenu-btn { padding: 2px 6px; font-size: 13px; line-height: 1; color: #777; }
   .rowops button.rowmenu-btn:hover { color: var(--accent); }
+  /* 행 메뉴로 선택한 행 강조 (메뉴를 닫아도 잠시 남아 위치를 확인할 수 있음) */
+  table.items tr.row-active > td,   table.details tr.row-active > td,
+  table.items tr.row-recent > td,   table.details tr.row-recent > td { background: #fff3d6; }
+  table.items tr.row-active > td:first-child,
+  table.details tr.row-active > td:first-child { box-shadow: inset 3px 0 0 #e6a700; }
+  table.items tr.row-active > td.rowops,  table.details tr.row-active > td.rowops,
+  table.items tr.row-recent > td.rowops,  table.details tr.row-recent > td.rowops { background: transparent; }
+  .rowops button.rowmenu-btn.on { color: var(--accent); background: var(--accent-light); }
   /* 행 메뉴 (햄버거) */
   #rowMenu {
     position: fixed; display: none; z-index: 100; min-width: 156px; padding: 4px;
@@ -323,7 +331,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>전표 관리 <span class="app-version">v30</span></h1>
+      <h1>전표 관리 <span class="app-version">v31</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="openNewSlipDialog()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -1072,6 +1080,32 @@ function positionRowMenu(btn) {
   if (left < 8) left = 8;
   m.style.left = left + 'px';
   m.style.top = top + 'px';
+  highlightRow(btn);
+}
+/* 선택한 행 강조 */
+let rowGlowTimer = null;
+function highlightRow(btn) {
+  clearRowHighlight();
+  const tr = btn && btn.closest('tr');
+  if (!tr) return;
+  tr.classList.add('row-active');
+  btn.classList.add('on');
+}
+function clearRowHighlight() {
+  clearTimeout(rowGlowTimer);
+  document.querySelectorAll('tr.row-active, tr.row-recent').forEach(tr => tr.classList.remove('row-active', 'row-recent'));
+  document.querySelectorAll('.rowmenu-btn.on').forEach(b => b.classList.remove('on'));
+}
+// 메뉴를 닫은 뒤에도 잠시 강조를 남겨 옮겨간 자리를 눈으로 확인할 수 있게 함
+function fadeRowHighlight() {
+  clearTimeout(rowGlowTimer);
+  document.querySelectorAll('.rowmenu-btn.on').forEach(b => b.classList.remove('on'));
+  const rows = [...document.querySelectorAll('tr.row-active')];
+  rows.forEach(tr => { tr.classList.remove('row-active'); tr.classList.add('row-recent'); });
+  if (!rows.length) return;
+  rowGlowTimer = setTimeout(() => {
+    rows.forEach(tr => tr.classList.remove('row-recent'));
+  }, 1500);
 }
 function updateRowMenuDisabled() {
   if (!rowMenuState) return;
@@ -1089,6 +1123,7 @@ function closeRowMenu() {
   const m = rowMenuEl();
   if (m) m.style.display = 'none';
   rowMenuState = null;
+  fadeRowHighlight();
 }
 function rowMenuAction(action) {
   if (!rowMenuState) return;
