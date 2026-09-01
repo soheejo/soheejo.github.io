@@ -174,14 +174,16 @@
   .rowops button.rowmenu-btn.on { color: var(--accent); background: var(--accent-light); }
   /* 행 메뉴 (햄버거) */
   #rowMenu {
-    position: fixed; display: none; z-index: 100; min-width: 156px; padding: 4px;
+    position: fixed; display: none; z-index: 100; min-width: 196px; padding: 4px;
     background: #fff; border: 1px solid var(--bd-light); border-radius: 6px;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
   }
   #rowMenu button {
-    display: block; width: 100%; text-align: left; border: none; background: none;
+    display: flex; justify-content: space-between; align-items: center; gap: 14px;
+    width: 100%; text-align: left; border: none; background: none;
     padding: 7px 10px; font-size: 13px; border-radius: 4px;
   }
+  #rowMenu .key { flex: none; color: #bbb; font-size: 11px; }
   #rowMenu button:hover:not(:disabled) { background: var(--accent-light); }
   #rowMenu button:disabled { opacity: 0.35; cursor: default; }
   #rowMenu button.danger:hover:not(:disabled) { background: #fdecea; }
@@ -298,13 +300,16 @@
   /* 첨부 이미지: 2열 그리드 */
   .p-attach { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; margin-top: 8mm; }
   .p-attach img { width: 100%; display: block; border: 1px solid #999; break-inside: avoid; }
+  /* 남는 하단 공간에 맞춰 키운 경우 (이미지 1~2장) */
+  .p-attach.fit { justify-items: center; align-items: start; }
+  .p-attach.one { grid-template-columns: 1fr; }
 </style>
 </head>
 <body>
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>출금전표 관리 <span class="app-version">v32</span></h1>
+      <h1>출금전표 관리 <span class="app-version">v33</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="newSlip()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -462,15 +467,15 @@
 
 <!-- 행 메뉴 (햄버거) -->
 <div id="rowMenu">
-  <button id="rmUp" onclick="rowMenuAction('up')">↑&nbsp; 위로 이동</button>
-  <button id="rmDown" onclick="rowMenuAction('down')">↓&nbsp; 아래로 이동</button>
-  <button id="rmTop" onclick="rowMenuAction('top')">⤒&nbsp; 맨 위로</button>
-  <button id="rmBottom" onclick="rowMenuAction('bottom')">⤓&nbsp; 맨 아래로</button>
+  <button id="rmUp" onclick="rowMenuAction('up')"><span>↑&nbsp; 위로 이동</span><span class="key">↑</span></button>
+  <button id="rmDown" onclick="rowMenuAction('down')"><span>↓&nbsp; 아래로 이동</span><span class="key">↓</span></button>
+  <button id="rmTop" onclick="rowMenuAction('top')"><span>⤒&nbsp; 맨 위로</span><span class="key">Home</span></button>
+  <button id="rmBottom" onclick="rowMenuAction('bottom')"><span>⤓&nbsp; 맨 아래로</span><span class="key">End</span></button>
   <div class="menu-hint">이동해도 메뉴는 그대로 열려 있습니다</div>
   <div class="sep"></div>
-  <button onclick="rowMenuAction('duplicate')">⧉&nbsp; 이 행 복제</button>
-  <button onclick="rowMenuAction('clear')">⌫&nbsp; 이 행 내용만 지우기</button>
-  <button class="danger" onclick="rowMenuAction('remove')">−&nbsp; 이 행 삭제</button>
+  <button onclick="rowMenuAction('duplicate')"><span>⧉&nbsp; 이 행 복제</span><span class="key">R</span></button>
+  <button onclick="rowMenuAction('clear')"><span>⌫&nbsp; 이 행 내용만 지우기</span><span class="key">C</span></button>
+  <button class="danger" onclick="rowMenuAction('remove')"><span>−&nbsp; 이 행 삭제</span><span class="key">Del</span></button>
 </div>
 
 <!-- 인쇄 전용 영역 -->
@@ -964,7 +969,20 @@ document.addEventListener('click', e => {
   if (e.target.closest('#rowMenu') || e.target.closest('.rowmenu-btn')) return;
   closeRowMenu();
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeRowMenu(); });
+// 행 메뉴가 열려 있을 때의 단축키 (자판 배열·한글 입력기와 무관하게 물리 키로 인식)
+const ROW_MENU_KEYS = {
+  ArrowUp: 'up', ArrowDown: 'down', Home: 'top', End: 'bottom',
+  KeyR: 'duplicate', KeyC: 'clear', Delete: 'remove',
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeRowMenu(); return; }
+  if (!isRowMenuOpen() || !rowMenuState) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;   // Ctrl+C 등 기본 단축키는 그대로
+  const action = ROW_MENU_KEYS[e.code];
+  if (!action) return;
+  e.preventDefault();
+  rowMenuAction(action);
+});
 window.addEventListener('resize', closeRowMenu);
 document.addEventListener('scroll', () => { if (isRowMenuOpen()) closeRowMenu(); }, true);
 // 행을 지정한 자리로 옮김 (한 칸 이동 · 맨 위 · 맨 아래 공용)
@@ -1763,7 +1781,45 @@ async function printSlip() {
     img.onload = img.onerror = res;
     setTimeout(res, 2000);
   })));
+  fitPrintAttachments();
   window.print();
+}
+
+/* 인쇄 시 남는 하단 공간에 맞춰 첨부 이미지를 키움 (이미지가 1~2장일 때만) */
+const A4_W_PX = 703;        // 가로 210mm - 좌우 여백 12mm
+const A4_H_PX = 1016;       // 세로 297mm - 상하 여백 14mm
+const ATTACH_GAP_PX = 19;   // 이미지 사이 간격 5mm
+function fitPrintAttachments() {
+  const pa = document.getElementById('printArea');
+  const keep = pa.style.cssText;
+  // 실제 인쇄 폭으로 잠시 배치해 남는 높이를 잰다 (화면에는 보이지 않음)
+  pa.style.cssText = 'display:block;position:absolute;left:-10000px;top:0;width:' + A4_W_PX + 'px;background:#fff';
+  try {
+    for (const sheet of pa.querySelectorAll('.p-sheet')) {
+      const box = sheet.querySelector('.p-attach');
+      if (!box) continue;
+      const imgs = [...box.querySelectorAll('img')];
+      if (!imgs.length || imgs.length > 2) continue;   // 3장 이상은 기존 흐름 유지
+      // '분리'된 첨부는 새 장에서 시작하므로 한 페이지를 통째로 쓸 수 있음
+      const used = box.classList.contains('separated')
+        ? 0
+        : box.getBoundingClientRect().top - sheet.getBoundingClientRect().top;
+      const remain = A4_H_PX - used - 8;
+      if (remain < 140) continue;                      // 남는 자리가 거의 없으면 건드리지 않음
+      const colW = imgs.length === 1 ? A4_W_PX : (A4_W_PX - ATTACH_GAP_PX) / 2;
+      box.classList.add('fit');
+      if (imgs.length === 1) box.classList.add('one');
+      for (const img of imgs) {
+        const nw = img.naturalWidth, nh = img.naturalHeight;
+        if (!nw || !nh) continue;
+        const scale = Math.min(colW / nw, remain / nh);   // 가로·세로 중 먼저 걸리는 쪽에 맞춤
+        img.style.width = Math.floor(nw * scale) + 'px';
+        img.style.height = 'auto';
+      }
+    }
+  } finally {
+    pa.style.cssText = keep;
+  }
 }
 
 /* ===== 계정과목 관리 ===== */
