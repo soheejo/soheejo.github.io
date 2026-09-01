@@ -309,7 +309,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>출금전표 관리 <span class="app-version">v33</span></h1>
+      <h1>출금전표 관리 <span class="app-version">v34</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="newSlip()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -420,7 +420,8 @@
 
       <div class="section-title">첨부 이미지 (세금계산서 등)
         <label class="toggle"><input type="checkbox" id="separateAttach" onchange="toggleSeparateAttach()"> 분리 (다음 페이지로)</label>
-        <span class="hint">Ctrl+V 붙여넣기 · 드래그&드롭 · 파일 선택 — 인쇄 시 하단에 2열로 출력(분리 시 별도 페이지)</span>
+        <label class="toggle" title="켜면 남는 공간에 맞춰 크게, 끄면 작게 인쇄합니다 (이미지 1~2장일 때)"><input type="checkbox" id="fillAttach" onchange="toggleFillAttach()"> 크게 채우기</label>
+        <span class="hint">Ctrl+V 붙여넣기 · 드래그&드롭 · 파일 선택 — 인쇄 시 하단에 2열로 출력</span>
       </div>
       <div id="attachZone">
         <div id="attachGrid"></div>
@@ -669,6 +670,7 @@ function normalizeSlip(s) {
   if (s.showDetails === undefined) s.showDetails = true;
   if (!Array.isArray(s.attachments)) s.attachments = [];
   if (s.separateAttachments === undefined) s.separateAttachments = false; // 첨부 이미지를 별도 페이지로 인쇄
+  if (s.fillAttachments === undefined) s.fillAttachments = true;          // 남는 공간에 맞춰 첨부 이미지 확대
   if (s.memo === undefined) s.memo = '';
   if (s.groupId === undefined) s.groupId = '';   // 그룹(여러 페이지)으로 묶는 키. 빈 값이면 단독(1페이지)
   if (!s.pageNo) s.pageNo = 1;                    // 그룹 내 페이지 순서 (1부터)
@@ -686,6 +688,7 @@ function blankSlip() {
     showDetails: true,
     attachments: [],
     separateAttachments: false,
+    fillAttachments: true,
     title: '',
     memo: '',
     groupId: '',
@@ -849,6 +852,7 @@ function selectSlip(id) {
   document.getElementById('memo').value = s.memo;
   document.getElementById('showDetails').checked = s.showDetails;
   document.getElementById('separateAttach').checked = !!s.separateAttachments;
+  document.getElementById('fillAttach').checked = !!s.fillAttachments;
   document.getElementById('detailsWrap').style.display = s.showDetails ? 'block' : 'none';
   renderItems(s);
   renderDetails(s);
@@ -1198,6 +1202,11 @@ function toggleShowDetails() {
 function toggleSeparateAttach() {
   const s = current();
   s.separateAttachments = document.getElementById('separateAttach').checked;
+  persistList();
+}
+function toggleFillAttach() {
+  const s = current();
+  s.fillAttachments = document.getElementById('fillAttach').checked;
   persistList();
 }
 
@@ -1616,7 +1625,7 @@ function buildSlipCopyText(s) {
   });
   lines.push([]);
   lines.push(['메모', s.memo || '']);
-  lines.push(['첨부 이미지', `${(s.attachments || []).length}개${s.separateAttachments ? ' (별도 페이지)' : ''}`]);
+  lines.push(['첨부 이미지', `${(s.attachments || []).length}개${s.separateAttachments ? ' (별도 페이지)' : ''}${s.fillAttachments ? ' (크게 채우기)' : ''}`]);
 
   return lines.map(row => row.map(tsvCell).join('\t')).join('\n');
 }
@@ -1686,6 +1695,7 @@ function resetSlip() {
   s.showDetails = true;
   s.attachments = [];
   s.separateAttachments = false;
+  s.fillAttachments = true;
   s.title = '';
   s.memo = '';
   persist();
@@ -1758,7 +1768,10 @@ async function buildPrintSection(p) {
       const data = await imgGet(id);
       if (data) images.push(`<img src="${data}" alt="첨부">`);
     }
-    if (images.length) attachHtml = `<div class="p-attach${p.separateAttachments ? ' separated' : ''}">${images.join('')}</div>`;
+    const attachCls = 'p-attach'
+      + (p.separateAttachments ? ' separated' : '')
+      + (p.fillAttachments ? ' fillable' : '');
+    if (images.length) attachHtml = `<div class="${attachCls}">${images.join('')}</div>`;
   }
   return `<div class="p-sheet">
     ${printHead()}
@@ -1789,6 +1802,7 @@ async function printSlip() {
 const A4_W_PX = 703;        // 가로 210mm - 좌우 여백 12mm
 const A4_H_PX = 1016;       // 세로 297mm - 상하 여백 14mm
 const ATTACH_GAP_PX = 19;   // 이미지 사이 간격 5mm
+const ATTACH_SMALL_H = 260; // '크게 채우기'를 껐을 때 이미지 최대 높이 (약 69mm)
 function fitPrintAttachments() {
   const pa = document.getElementById('printArea');
   const keep = pa.style.cssText;
@@ -1806,13 +1820,16 @@ function fitPrintAttachments() {
         : box.getBoundingClientRect().top - sheet.getBoundingClientRect().top;
       const remain = A4_H_PX - used - 8;
       if (remain < 140) continue;                      // 남는 자리가 거의 없으면 건드리지 않음
+      // '크게 채우기'가 켜져 있으면 남는 높이를 다 쓰고, 꺼져 있으면 작게 유지
+      const fill = box.classList.contains('fillable');
+      const capH = fill ? remain : Math.min(remain, ATTACH_SMALL_H);
       const colW = imgs.length === 1 ? A4_W_PX : (A4_W_PX - ATTACH_GAP_PX) / 2;
       box.classList.add('fit');
       if (imgs.length === 1) box.classList.add('one');
       for (const img of imgs) {
         const nw = img.naturalWidth, nh = img.naturalHeight;
         if (!nw || !nh) continue;
-        const scale = Math.min(colW / nw, remain / nh);   // 가로·세로 중 먼저 걸리는 쪽에 맞춤
+        const scale = Math.min(colW / nw, capH / nh);   // 가로·세로 중 먼저 걸리는 쪽에 맞춤
         img.style.width = Math.floor(nw * scale) + 'px';
         img.style.height = 'auto';
       }
