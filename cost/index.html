@@ -15,11 +15,11 @@
     --accent-dark: #1e4276;
     --accent-light: #e8eef7;
     /* 하늘색 테마 — 좌측·상단 메뉴 전용 (v17) */
-    --sky-line: #c9dceb;
-    --sky-hover: #f2f7fb;
-    --sky-strong: #3f87ba;
-    --sky-bar: #3f87ba;        /* 상단 바·좌측 메뉴 머리 띠 — 채도 낮춘 차분한 하늘색 (v19) */
-    --sky-bar-edge: #33739f;
+    --sky-line: #c5dff0;
+    --sky-hover: #f0f7fc;
+    --sky-strong: #4295cc;
+    --sky-bar: #4295cc;        /* 상단 바·좌측 메뉴 머리 띠 — v19보다 밝게, 채도는 차분하게 (v20) */
+    --sky-bar-edge: #3480b5;
     --danger: #c0392b;
     --warn-bg: #fff4e5;
   }
@@ -29,8 +29,8 @@
   /* ===== 레이아웃 ===== */
   #app { display: flex; height: 100vh; }
   /* 하늘색은 좌측·상단 메뉴 안에서만 강조색을 덮어씀 → 본문으로 번지지 않음 */
-  #sidebar, #editorToolbar { --accent: #33739f; --accent-dark: #2b6189; --accent-light: #e3eff7; }
-  #sidebar { width: 300px; min-width: 300px; background: linear-gradient(180deg, #e2eef7 0%, #ebf3f9 50%, #f3f8fb 100%); border-right: 1px solid var(--sky-line); display: flex; flex-direction: column; }
+  #sidebar, #editorToolbar { --accent: #2f78ad; --accent-dark: #286894; --accent-light: #e4f1fa; }
+  #sidebar { width: 300px; min-width: 300px; background: linear-gradient(180deg, #e5f2fb 0%, #eef6fc 50%, #f6fafd 100%); border-right: 1px solid var(--sky-line); display: flex; flex-direction: column; }
   #sidebar header { padding: 14px 16px 12px; background: var(--sky-bar); border-bottom: 1px solid var(--sky-bar-edge); }
   #sidebar header h1 { color: #fff; }
   #sidebar header h1 .app-version { color: #d6e7f3; }
@@ -84,6 +84,17 @@
   .note-list:empty { display: none; }
   .note-list li { margin: 4px 0; padding: 6px 10px; border-radius: 4px; font-size: 12px; line-height: 1.55; background: #f3f6fb; color: #34495e; }
   .lbl-line { white-space: nowrap; }
+  /* 안내·경고 목록 접기 (v20): 목록 위 오른쪽 알약 버튼, 숨기면 건수만 표시 */
+  .hint-bar { display: flex; justify-content: flex-end; margin: 8px 0 0; }
+  .hint-bar[hidden], #ruleHints[hidden], #vehicleWarnings[hidden] { display: none; }
+  .hint-bar + #ruleHints, .hint-bar + #vehicleWarnings { margin-top: 4px; }
+  .hint-pill { display: inline-flex; align-items: center; gap: 8px; padding: 3px 10px; border-radius: 999px; font-size: 12px; background: #f3f6fb; border: 1px solid #d6dfeb; color: #34495e; }
+  .hint-pill:hover { background: #e8eef7; }
+  .hint-pill.has-warn { background: var(--warn-bg); border-color: #f0d3a8; }
+  .hint-pill.has-warn:hover { background: #fde9cc; }
+  .hint-pill .w { color: #8a5a00; font-weight: bold; }
+  .hint-pill .i { color: #5b6b7b; }
+  .hint-pill .t { color: #888; }
   .note-list li.warn { background: var(--warn-bg); color: #8a5a00; }
   .vsum { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
   .vsum .tile { border: 1px solid var(--bd-light); border-radius: 6px; padding: 10px 12px; background: #fafbfc; min-width: 0; }
@@ -466,7 +477,7 @@
 'use strict';
 
 /* ===== 버전 (갱신 내역은 README.md 변경 이력에서만 관리) ===== */
-const APP_VERSION = 'v19';
+const APP_VERSION = 'v20';
 
 /* ===== 출장비 지급규정 (2026.03.01) =====
    <별표> 국내(₩) / 국외(US$). null = 실비. 국외는 모든 직책 "혹은 실비" 가능 */
@@ -1264,6 +1275,28 @@ function renderHints(t, k) {
   }
   if (t.legs.some(l => l.mode.includes('항공'))) add('항공편 출장: 공식 일정 후 연차 3일 이내 사용 시 왕복 항공, 4일 이상이면 출발 편도만 지원. 공식 일정 전 연차 사용 불가.', '제1조 4항');
   document.getElementById('ruleHints').innerHTML = hints.join('');
+  renderHintBar(document.getElementById('ruleHints'));
+}
+/* --- 안내·경고 목록 접기 (출장 #ruleHints · 주유비 #vehicleWarnings 공용) ---
+   숨김 상태는 이 브라우저에 기억(모든 명세서 공통). 숨겨도 건수 버튼은 항상 보임 */
+const LS_HINTS_HIDDEN = 'trip_expense_hints_hidden_v1';
+function hintsHidden() { try { return localStorage.getItem(LS_HINTS_HIDDEN) === '1'; } catch { return false; } }
+function toggleHints() {
+  try { localStorage.setItem(LS_HINTS_HIDDEN, hintsHidden() ? '0' : '1'); } catch {}
+  document.querySelectorAll('#ruleHints, #vehicleWarnings').forEach(renderHintBar);
+}
+function renderHintBar(listEl) {
+  if (!listEl) return;
+  let bar = listEl.previousElementSibling;
+  if (!bar || !bar.classList.contains('hint-bar')) { bar = document.createElement('div'); bar.className = 'hint-bar'; listEl.before(bar); }
+  const all = listEl.querySelectorAll('li').length, warn = listEl.querySelectorAll('li.warn').length, info = all - warn;
+  if (!all) { bar.hidden = true; listEl.hidden = false; return; }
+  const hidden = hintsHidden();
+  bar.hidden = false;
+  listEl.hidden = hidden;
+  bar.innerHTML = `<button type="button" class="hint-pill ${warn ? 'has-warn' : ''}" onclick="toggleHints()" title="${hidden ? '안내 문구 펼치기' : '안내 문구 숨기기'}">` +
+    (warn ? `<span class="w">⚠ ${warn}건</span>` : '') + (info ? `<span class="i">안내 ${info}건</span>` : '') +
+    `<span class="t">${hidden ? '펼치기 ▾' : '숨기기 ▴'}</span></button>`;
 }
 function rateTableHtml(rank) {
   const me = rateRow(rank);
@@ -1855,6 +1888,7 @@ function updateVehicle() {
   const duplicates=vehicleUses(t,'drives')&&trips.some(x=>x.id!==t.id&&x.kind==='vehicle'&&vehicleUses(x,'drives')&&x.month===t.month&&x.name===t.name&&x.car===t.car);
   const warns=[...vehicleErrors(t),...(duplicates?['같은 성명·차량·정산월의 다른 명세서가 있습니다. 지원금 구간 중복을 확인하세요.']:[])];
   document.getElementById('vehicleWarnings').innerHTML=warns.map(w=>`<li class="warn">⚠ ${esc(w)}</li>`).join('');
+  renderHintBar(document.getElementById('vehicleWarnings'));
   document.getElementById('vehiclePreview').innerHTML=specToHtml(vehicleSpec(t));
 }
 
