@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>출금전표 관리</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232e7d32'/%3E%3Ccircle cx='32' cy='32' r='20' fill='none' stroke='%23fff' stroke-width='4'/%3E%3Cpath d='M21 23l5.2 18L32 27l5.8 14L43 23' fill='none' stroke='%23fff' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M19.5 30h25M19.5 35.5h25' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
   :root {
     --bd: #333;
@@ -52,6 +53,28 @@
   #slipList li.active { background: var(--accent-light); border-left: 3px solid var(--accent); padding-left: 13px; }
   #slipList .date { font-weight: bold; }
   #slipList .sum { float: right; color: var(--accent); font-weight: bold; }
+  #slipList .type-badge,
+  .slip-type-badge {
+    display: inline-block; margin-left: 6px; padding: 1px 6px;
+    border-radius: 10px; background: #eef2f7; color: #555;
+    font-size: 11px; font-weight: bold; vertical-align: middle;
+  }
+  #slipList .type-badge.badge-withdrawal, .slip-type-badge.badge-withdrawal { background: #fdecec; color: #c0392b; } /* 출금 - 연한 빨강 */
+  #slipList .type-badge.badge-personal,   .slip-type-badge.badge-personal   { background: #f1ebfa; color: #6a3ea1; } /* 개인경비 - 연한 보라 */
+  #typeDialog { width: min(440px, calc(100vw - 32px)); }
+  #typeDialog p { color: #666; line-height: 1.55; }
+  .type-choices { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 16px 0; }
+  .type-choices button { padding: 14px 8px; font-weight: bold; }
+  .type-choices small { display: block; margin-top: 5px; color: #777; font-weight: normal; }
+  /* 개인경비: 다우오피스 붙여넣기 미리보기 */
+  [hidden] { display: none !important; }
+  #infoToast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 10000; width: max-content; max-width: min(560px, calc(100vw - 32px));
+    padding: 14px 44px 14px 20px; border-radius: 10px; background: #243b53; color: #fff; box-shadow: 0 4px 18px #0003; font-size: 14px; line-height: 1.6; }
+  #infoToast .toast-close { position: absolute; top: 8px; right: 8px; padding: 2px 8px; border: none; background: none; color: #fff; font-size: 15px; cursor: pointer; opacity: .75; }
+  #infoToast .toast-close:hover { opacity: 1; background: #ffffff22; }
+  @media print { #infoToast { display: none !important; } }
+  #daouPreview { overflow-x: auto; padding: 12px 0; border: 1px dashed var(--bd-light); border-radius: 6px; background: #fff; }
+  .copy-guide { margin: 8px 0 0; padding-left: 18px; color: #666; font-size: 12px; line-height: 1.7; }
   #slipList .page-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 10px; background: #fff3e0; color: #b26a00; font-size: 11px; font-weight: bold; vertical-align: middle; }
   #slipList li.selectable { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
   #slipList li.selectable .sel-check { margin-top: 2px; width: 16px; height: 16px; flex: none; pointer-events: none; }
@@ -309,9 +332,9 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>출금전표 관리 <span class="app-version">v34</span></h1>
+      <h1>출금전표 관리 <span class="app-version">v36</span></h1>
       <div class="toolbar">
-        <button class="primary" onclick="newSlip()">+ 새 전표</button>
+        <button class="primary" onclick="openNewSlipDialog()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
         <button id="bankBtn" onclick="pickBankFile()" title="상호·은행·계좌번호·예금주가 있는 .xlsx 파일을 불러옵니다">통장계좌</button>
       </div>
@@ -348,10 +371,12 @@
         </div>
         <div class="toolbar-actions">
           <span id="pageInfo" class="page-info" title="이 전표 그룹의 페이지"></span>
-          <button onclick="addPage()" title="페이지를 이어서 추가합니다(한 그룹으로 묶여 연속 인쇄)">+ 페이지 추가</button>
+          <button id="addPageBtn" onclick="addPage()" title="페이지를 이어서 추가합니다(한 그룹으로 묶여 연속 인쇄)">+ 페이지 추가</button>
           <button onclick="duplicateSlip()">전표 복제</button>
           <button onclick="copySlipText()" title="입력 내용을 탭으로 구분해 복사합니다">전체 복사</button>
           <button class="primary" onclick="printSlip()" id="printBtn">인쇄</button>
+          <button class="primary" onclick="copyForDaou()" id="daouBtn" hidden title="개인경비 표를 서식 그대로 복사합니다 (다우오피스 기안 본문에 Ctrl+V)">📋 다우오피스용 복사</button>
+          <button onclick="exportPersonalXlsx()" id="xlsxBtn" hidden title="백업·보관용 .xlsx 다운로드">📊 엑셀 추출</button>
           <button onclick="resetSlip()">초기화</button>
           <button class="danger" onclick="deleteSlip()">삭제</button>
         </div>
@@ -361,7 +386,7 @@
     <div id="editor" style="display:none">
       <div class="editor-head">
         <div class="title-area">
-          <h2>출금전표 편집 <span id="saveState"></span></h2>
+          <h2><span id="editorTitle">출금전표</span> 편집 <span id="slipTypeBadge" class="slip-type-badge"></span> <span id="saveState"></span></h2>
           <div class="title-field">
             <label for="slipTitle">전표 제목</label>
             <input id="slipTitle" type="text" maxlength="100" placeholder="목록에서 구분할 제목 (인쇄되지 않음)" oninput="onTitleInput()">
@@ -405,7 +430,7 @@
       </div>
 
       <div class="section-title">상세내역
-        <label class="toggle"><input type="checkbox" id="showDetails" onchange="toggleShowDetails()"> 사용 (인쇄에 포함)</label>
+        <label class="toggle"><input type="checkbox" id="showDetails" onchange="toggleShowDetails()"> 사용 <span id="showDetailsNote">(인쇄에 포함)</span></label>
         <span class="hint">상호/예금주를 입력해 통장계좌 자동완성 · PO번호·End User 명 기재</span>
         <span class="hint" id="bankStatus"></span>
       </div>
@@ -418,6 +443,21 @@
         </div>
       </div>
 
+      <div id="daouSection" hidden>
+        <div class="section-title">다우오피스 붙여넣기 미리보기
+          <button class="mini primary" onclick="copyForDaou()">📋 다우오피스용 복사</button>
+          <button class="mini" onclick="exportPersonalXlsx()" title="백업·보관용 .xlsx 다운로드">📊 엑셀 추출</button>
+          <span class="hint">개인경비는 인쇄하지 않고 이 표를 다우오피스 기안 본문에 붙여넣습니다</span>
+        </div>
+        <div id="daouPreview"></div>
+        <ul class="copy-guide">
+          <li><b>📋 다우오피스용 복사</b> → 다우오피스 기안 본문에서 <b>Ctrl+V</b> (테두리·정렬·색상 유지)</li>
+          <li><b>📊 엑셀 추출</b> → 같은 표 서식의 .xlsx 파일 다운로드 (<b>백업·보관용</b>)</li>
+          <li>상세내역은 <b>사용</b>에 체크했을 때만 함께 복사·추출됩니다 · 영수증 이미지는 다우오피스에 직접 첨부하세요</li>
+        </ul>
+      </div>
+
+      <div id="attachSection">
       <div class="section-title">첨부 이미지 (세금계산서 등)
         <label class="toggle"><input type="checkbox" id="separateAttach" onchange="toggleSeparateAttach()"> 분리 (다음 페이지로)</label>
         <label class="toggle" title="켜면 남는 공간에 맞춰 크게, 끄면 작게 인쇄합니다 (이미지 1~2장일 때)"><input type="checkbox" id="fillAttach" onchange="toggleFillAttach()"> 크게 채우기</label>
@@ -428,12 +468,24 @@
         <button class="mini" onclick="pickAttachFiles()">+ 파일 선택</button>
         <span class="hint" id="attachHint" style="margin-left:6px">이미지를 여기에 끌어다 놓거나, 캡처 후 Ctrl+V 하세요.</span>
       </div>
+      </div>
 
       <div class="section-title">메모 <span class="hint">내부 참고용 — 인쇄되지 않음</span></div>
       <textarea id="memo" oninput="onFieldChange()" placeholder="피드백, 처리 상태 등"></textarea>
     </div>
   </main>
 </div>
+
+<!-- 새 전표 유형 선택 -->
+<dialog id="typeDialog">
+  <h3>새 전표 만들기</h3>
+  <p>작성할 양식을 선택하세요. 입력표는 같고, 개인경비는 인쇄 대신 다우오피스에 붙여넣을 표를 복사합니다.</p>
+  <div class="type-choices">
+    <button class="primary" onclick="newSlip('withdrawal')">출금전표<small>인쇄 · 결재란 · 첨부 이미지</small></button>
+    <button onclick="newSlip('personal')">개인경비<small>다우오피스 붙여넣기용</small></button>
+  </div>
+  <div style="text-align:right"><button onclick="document.getElementById('typeDialog').close()">취소</button></div>
+</dialog>
 
 <!-- 계정과목 관리 -->
 <dialog id="acctDialog">
@@ -507,6 +559,12 @@ const DEFAULT_ACCTS = [
   ["상품/선급부가세",""]
 ];
 
+// 직원용은 출금전표 입력표만 사용. 개인경비는 같은 입력표로 작성해 다우오피스에 붙여넣음 (저장된 전표를 불러오기 전에 정의)
+const SLIP_TYPES = {
+  withdrawal: '출금전표',
+  personal: '개인경비',
+};
+
 let slips = load(LS_SLIPS, []);
 let accts = load(LS_ACCTS, DEFAULT_ACCTS.map(([name, code]) => ({ name, code: String(code) })));
 let bankAccounts = load(LS_BANK_ACCOUNTS, []);
@@ -527,6 +585,7 @@ function load(key, fallback) {
 function persist() {
   localStorage.setItem(LS_SLIPS, JSON.stringify(slips));
   flashSaved();
+  renderDaouPreview();   // 개인경비면 다우오피스 미리보기 갱신
   scheduleAutoBackup();   // 자동 백업 파일이 지정돼 있으면 갱신
 }
 function flashSaved() { flashStatus('저장됨'); }
@@ -661,9 +720,12 @@ function findBankAccount(value) {
 }
 
 /* ===== 전표 모델 ===== */
+function slipType(s) { return SLIP_TYPES[s?.type] ? s.type : 'withdrawal'; }
+function slipTypeLabel(s) { return SLIP_TYPES[slipType(s)]; }
 function blankItem() { return { acct: '', vendor: '', supply: '', vat: '' }; }
 function normalizeSlip(s) {
   ensureCreatedAt(s);
+  s.type = slipType(s);
   if (s.title === undefined) s.title = '';
   if (!Array.isArray(s.items)) s.items = Array.from({ length: 8 }, blankItem);
   if (!Array.isArray(s.details)) s.details = ['', '', ''];
@@ -676,10 +738,11 @@ function normalizeSlip(s) {
   if (!s.pageNo) s.pageNo = 1;                    // 그룹 내 페이지 순서 (1부터)
   return s;
 }
-function blankSlip() {
+function blankSlip(type = 'withdrawal') {
   const draft = todayIso();
   return normalizeSlip({
     id: uid('s'),
+    type: SLIP_TYPES[type] ? type : 'withdrawal',
     createdAt: new Date().toISOString(),
     draftDate: draft,
     acctDate: nextThursday(draft),
@@ -769,7 +832,7 @@ function renderList() {
     const pages = groupPages(s);
     const pageTag = pages.length > 1
       ? `<span class="page-tag">📄 ${pages.findIndex(p => p.id === s.id) + 1}/${pages.length}</span>` : '';
-    const body = `<span class="date">${esc(s.draftDate)}</span>${pageTag}` +
+    const body = `<span class="date">${esc(s.draftDate)}</span><span class="type-badge badge-${slipType(s)}">${esc(slipTypeLabel(s))}</span>${pageTag}` +
       `<span class="sum">${won(slipTotal(s))}</span>` +
       `<div class="title">${esc(s.title?.trim() || '(제목 없음)')}</div>` +
       `<div class="desc">${esc(slipSummary(s))}</div>` +
@@ -848,6 +911,10 @@ function selectSlip(id) {
   document.getElementById('acctDate').value = s.acctDate;
   updateWeekdays();
   document.getElementById('slipTitle').value = s.title || '';
+  document.getElementById('editorTitle').textContent = slipTypeLabel(s);
+  const typeBadge = document.getElementById('slipTypeBadge');
+  typeBadge.textContent = slipTypeLabel(s);
+  typeBadge.className = 'slip-type-badge badge-' + slipType(s);
   document.getElementById('createdAt').textContent = fmtDateTime(s.createdAt);
   document.getElementById('memo').value = s.memo;
   document.getElementById('showDetails').checked = s.showDetails;
@@ -857,6 +924,7 @@ function selectSlip(id) {
   renderItems(s);
   renderDetails(s);
   renderAttachments(s);
+  applyTypeUi(s);
   renderList();
 }
 function current() { return slips.find(x => x.id === currentId); }
@@ -1551,9 +1619,328 @@ function onFieldChange() {
 }
 function persistList() { persist(); renderList(); }
 
+/* ===== 개인경비: 다우오피스용 표 복사 =====
+   개인경비는 인쇄하지 않고 다우오피스 기안 본문에 붙여넣는다.
+   출금전표 인쇄본과 같은 열 구성, 결재란 자리에는 '개인경비' 부제목.
+   다우오피스 편집기가 td 여백·정렬을 지워도 유지되도록 내용은 div 안에 두고 서식을 겹쳐 준다. */
+const DAOU_COL_PX = [45, 117, 275, 133, 133, 134];   // 번호·계정과목·거래처·합계·공급가액·부가세 = 837px (기존 엑셀 전산 양식과 동일)
+const DAOU_ROW_H = 33;                                 // 행 높이(px) — 엑셀 양식과 동일
+const DAOU_W = DAOU_COL_PX.reduce((a, b) => a + b, 0);
+const DAOU_FONT = "font-family:'맑은 고딕','Malgun Gothic',sans-serif;";
+const DAOU_GAP = '<div style="height:12px;line-height:12px;font-size:1px;">&nbsp;</div>';
+const DAOU_LINE_HEAD = 'border:1px solid #000;border-bottom:1.5px solid #000;';
+const DAOU_LINE_TOTAL = 'border:1px solid #000;border-top:4px double #000;';
+function daouCell(content, o = {}) {
+  const align = o.align || 'center';
+  const text = content === '' || content == null ? '&nbsp;' : String(content);
+  const td = DAOU_FONT + (o.border || 'border:1px solid #000;') + (o.head ? 'background-color:#f2f2f2;' : '')
+    + 'padding:0 !important;vertical-align:middle;box-sizing:border-box;text-align:' + align + ' !important;';
+  const div = DAOU_FONT + 'margin:0 !important;padding:' + (o.wrap ? '5px' : '0') + ' 8px !important;box-sizing:border-box;'
+    + 'font-size:11pt !important;line-height:1.5 !important;text-align:' + align + ' !important;'
+    + (o.blue ? 'color:#0000ff;' : 'color:#000;')
+    + (o.head || o.bold ? 'font-weight:bold;' : 'font-weight:normal;')
+    + (o.wrap ? 'word-break:keep-all;' : 'white-space:nowrap;overflow:hidden;');
+  return '<td' + (o.cs > 1 ? ' colspan="' + o.cs + '"' : '') + ' height="' + DAOU_ROW_H + '" align="' + align + '" style="' + td + 'height:' + DAOU_ROW_H + 'px;">'
+    + '<div align="' + align + '" style="' + div + '">' + text + '</div></td>';
+}
+function daouTable(cols, rows, outline) {
+  const width = cols.reduce((a, b) => a + b, 0);
+  return '<table style="border-collapse:collapse;table-layout:fixed;width:' + width + 'px;'
+    + (outline ? 'border:2px solid #000;' : '') + DAOU_FONT + '" cellspacing="0" cellpadding="0">'
+    + '<colgroup>' + cols.map(w => '<col style="width:' + w + 'px">').join('') + '</colgroup><tbody>'
+    + rows.map(r => '<tr>' + r.join('') + '</tr>').join('') + '</tbody></table>';
+}
+function daouItemsHtml(s) {
+  const supply = s.items.reduce((t, it) => t + parseNum(it.supply), 0);
+  const vat = s.items.reduce((t, it) => t + parseNum(it.vat), 0);
+  const rows = [
+    [daouCell('기안일', { cs: 2, head: true }), daouCell(esc(fmtKoreanDate(s.draftDate)), { bold: true }),
+     daouCell('회계일', { head: true }), daouCell(esc(fmtKoreanDate(s.acctDate)), { cs: 2, bold: true, blue: true })],
+    ['번호', '계정과목', '거래처', '합계', '공급가액', '부가세'].map(h => daouCell(h, { head: true, border: DAOU_LINE_HEAD })),
+  ];
+  paddedRows(s.items, blankItem).forEach((it, i) => {
+    const has = it.supply !== '' || it.vat !== '';   // 공급가액·부가세 중 하나라도 있으면 세 칸 모두 표시 (인쇄와 동일)
+    rows.push([
+      daouCell(i + 1, { bold: true }),
+      daouCell(esc(it.acct), { bold: true, blue: true }),
+      daouCell(esc(it.vendor), { align: 'left', bold: true }),
+      daouCell(has ? fmt(itemSum(it)) : '', { align: 'right', bold: true }),
+      daouCell(has ? fmt(parseNum(it.supply)) : '', { align: 'right', bold: true }),
+      daouCell(has ? fmt(parseNum(it.vat)) : '', { align: 'right', bold: true }),
+    ]);
+  });
+  rows.push([
+    daouCell('합계', { cs: 3, head: true, border: DAOU_LINE_TOTAL }),
+    daouCell(won(supply + vat), { align: 'right', bold: true, border: DAOU_LINE_TOTAL }),
+    daouCell(won(supply), { align: 'right', bold: true, border: DAOU_LINE_TOTAL }),
+    daouCell(won(vat), { align: 'right', bold: true, border: DAOU_LINE_TOTAL }),
+  ]);
+  return daouTable(DAOU_COL_PX, rows, true);
+}
+function daouDetailsHtml(s) {
+  const rows = [[daouCell('번호', { head: true, border: DAOU_LINE_HEAD }), daouCell('상세내역', { head: true, border: DAOU_LINE_HEAD })]];
+  s.details.forEach((d, i) => rows.push([daouCell(i + 1, { bold: true }), daouCell(esc(d), { align: 'left', bold: true, wrap: true })]));
+  return daouTable([DAOU_COL_PX[0], DAOU_W - DAOU_COL_PX[0]], rows, true);
+}
+function daouHtml(s) {
+  return daouItemsHtml(s) + (s.showDetails ? DAOU_GAP + daouDetailsHtml(s) : '');
+}
+// 서식 없이 붙는 곳(엑셀·메신저)용 탭 구분 텍스트
+function daouTsv(s) {
+  const supply = s.items.reduce((t, it) => t + parseNum(it.supply), 0);
+  const vat = s.items.reduce((t, it) => t + parseNum(it.vat), 0);
+  const lines = [
+    ['기안일', fmtKoreanDate(s.draftDate), '회계일', fmtKoreanDate(s.acctDate)],
+    ['번호', '계정과목', '거래처', '합계', '공급가액', '부가세'],
+  ];
+  paddedRows(s.items, blankItem).forEach((it, i) => {
+    const has = it.supply !== '' || it.vat !== '';
+    lines.push([i + 1, it.acct, it.vendor, has ? itemSum(it) : '', has ? parseNum(it.supply) : '', has ? parseNum(it.vat) : '']);
+  });
+  lines.push(['합계', '', '', supply + vat, supply, vat]);
+  if (s.showDetails) {
+    lines.push([]);
+    lines.push(['번호', '상세내역']);
+    s.details.forEach((d, i) => lines.push([i + 1, d]));
+  }
+  const TAB = String.fromCharCode(9), CRLF = String.fromCharCode(13, 10);
+  return lines.map(r => r.map(tsvCell).join(TAB)).join(CRLF);
+}
+// 서식 있는 표(text/html)와 일반 텍스트를 함께 넣음 — file:// 로 열었을 때도 되도록 copy 이벤트로 재시도
+async function writeClipboardHtml(html, text) {
+  if (navigator.clipboard?.write && window.ClipboardItem) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' }),
+      })]);
+      return;
+    } catch { /* 아래 방식으로 재시도 */ }
+  }
+  const onCopy = e => {
+    e.preventDefault();
+    e.clipboardData.setData('text/html', html);
+    e.clipboardData.setData('text/plain', text);
+  };
+  document.addEventListener('copy', onCopy);
+  const ok = document.execCommand('copy');
+  document.removeEventListener('copy', onCopy);
+  if (!ok) throw new Error('브라우저가 클립보드 접근을 막았습니다.');
+}
+async function copyForDaou() {
+  const s = current();
+  if (!s || slipType(s) !== 'personal') return;
+  const hasAmount = s.items.some(it => it.supply !== '' || it.vat !== '');
+  if (!hasAmount && !confirm('금액이 입력된 행이 없습니다. 그래도 복사할까요?')) return;
+  const html = '<html><body><!--StartFragment-->' + daouHtml(s) + '<!--EndFragment--></body></html>';
+  try {
+    await writeClipboardHtml(html, daouTsv(s));
+    flashStatus('📋 복사됨 — 다우오피스 본문에 Ctrl+V');
+  } catch (error) {
+    alert('다우오피스용 복사 실패: ' + error.message);
+  }
+}
+// 엑셀 XML·파일명에 쓸 수 없는 제어문자 제거 (탭·줄바꿈은 유지)
+function stripCtrl(v) {
+  return [...String(v)].filter(c => { const n = c.charCodeAt(0); return n >= 32 || n === 9 || n === 10 || n === 13; }).join('');
+}
+/* ===== 개인경비: 엑셀(.xlsx) 추출 =====
+   다우오피스 복사 표와 같은 모양(열 너비·병합·굵은 글씨·파란 계정과목·합계 이중선)의 시트를
+   외부 라이브러리 없이 표준 OOXML ZIP으로 만든다 (출장경비명세서 앱과 같은 방식). */
+function personalXlsxFiles(s) {
+  const xml = v => stripCtrl(v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const FMT_NUM = 164, FMT_WON = 165;
+  const LAST = DAOU_COL_PX.length - 1;
+  const H = 24.95;   // 33px — 기존 엑셀 양식과 같은 행 높이(pt)
+  // cellXfs[0]은 표 밖 빈 셀의 기본 서식이므로 비워 둔다
+  const borders = ['<border><left/><right/><top/><bottom/><diagonal/></border>'];
+  const styles = ['<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'];
+  const side = (tag, st) => st ? '<' + tag + ' style="' + st + '"><color rgb="FF000000"/></' + tag + '>' : '<' + tag + '/>';
+  const styleOf = o => {
+    const b = o.b;
+    const bx = '<border>' + side('left', b.l) + side('right', b.r) + side('top', b.t) + side('bottom', b.b) + '<diagonal/></border>';
+    let bi = borders.indexOf(bx); if (bi < 0) bi = borders.push(bx) - 1;
+    const align = o.align || 'center';
+    const xf = '<xf numFmtId="' + (o.fmt || 0) + '" fontId="' + (o.blue ? 2 : 1) + '" fillId="' + (o.head ? 2 : 0) + '" borderId="' + bi
+      + '" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1" applyNumberFormat="1">'
+      + '<alignment horizontal="' + align + '" vertical="center"' + (o.wrap ? ' wrapText="1"' : '') + (align !== 'center' ? ' indent="1"' : '') + '/></xf>';
+    let si = styles.indexOf(xf); if (si < 0) si = styles.push(xf) - 1;
+    return si;
+  };
+
+  // 표 구성 (다우오피스 복사 표와 동일)
+  const rows = [];
+  rows.push({ h: H, top: 'medium', cells: [
+    { v: '기안일', cs: 2, head: true }, { v: fmtKoreanDate(s.draftDate) },
+    { v: '회계일', head: true }, { v: fmtKoreanDate(s.acctDate), cs: 2, blue: true },
+  ] });
+  rows.push({ h: H, cells: ['번호', '계정과목', '거래처', '합계', '공급가액', '부가세'].map(v => ({ v, head: true })) });
+  paddedRows(s.items, blankItem).forEach((it, i) => {
+    const has = it.supply !== '' || it.vat !== '';   // 인쇄·복사와 같은 규칙
+    const amt = v => has ? { v, fmt: FMT_NUM, align: 'right' } : { v: '', align: 'right' };
+    rows.push({ h: H, cells: [
+      { v: i + 1 }, { v: it.acct, blue: true }, { v: it.vendor, align: 'left' },
+      amt(itemSum(it)), amt(parseNum(it.supply)), amt(parseNum(it.vat)),
+    ] });
+  });
+  const supply = s.items.reduce((t, it) => t + parseNum(it.supply), 0);
+  const vat = s.items.reduce((t, it) => t + parseNum(it.vat), 0);
+  rows.push({ h: H, top: 'double', bottom: 'medium', cells: [
+    { v: '합계', cs: 3, head: true },
+    { v: supply + vat, fmt: FMT_WON, align: 'right' },
+    { v: supply, fmt: FMT_WON, align: 'right' },
+    { v: vat, fmt: FMT_WON, align: 'right' },
+  ] });
+  if (s.showDetails) {
+    rows.push({ h: 9, cells: [] });   // 표 사이 간격
+    const details = s.details.length ? s.details : [''];
+    const width = DAOU_COL_PX.slice(1).reduce((a, b) => a + b, 0) - 20;
+    rows.push({ h: H, top: 'medium', cells: [{ v: '번호', head: true }, { v: '상세내역', cs: LAST, head: true }] });
+    details.forEach((d, i) => {
+      // 긴 상세내역은 줄바꿈되므로 대략적인 줄 수만큼 행 높이를 늘림
+      const lines = String(d).split(/\r?\n/).reduce((n, line) =>
+        n + Math.max(1, Math.ceil([...line].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 15 : 8), 0) / width)), 0);
+      rows.push({ h: Math.max(H, lines * 16.5 + 8), bottom: i === details.length - 1 ? 'medium' : '', cells: [
+        { v: i + 1 }, { v: d, cs: LAST, align: 'left', wrap: true },
+      ] });
+    });
+  }
+
+  const col = i => String.fromCharCode(65 + i);
+  const merges = [];
+  const sheetRows = rows.map((row, ri) => {
+    const r = ri + 1;
+    let c = 0;
+    const cells = row.cells.map(cell => {
+      const start = c, cs = cell.cs || 1;
+      c += cs;
+      if (cs > 1) merges.push(col(start) + r + ':' + col(start + cs - 1) + r);
+      let out = '';
+      // 병합 범위의 모든 칸에 테두리를 저장해야 엑셀에서 선이 끊기지 않음
+      for (let i = start; i < start + cs; i++) {
+        const si = styleOf({ ...cell, b: { l: i === 0 ? 'medium' : 'thin', r: i === LAST ? 'medium' : 'thin', t: row.top || 'thin', b: row.bottom || 'thin' } });
+        const ref = col(i) + r;
+        if (i > start || cell.v === '' || cell.v == null) out += '<c r="' + ref + '" s="' + si + '"/>';
+        else if (typeof cell.v === 'number') out += '<c r="' + ref + '" s="' + si + '"><v>' + cell.v + '</v></c>';
+        else out += '<c r="' + ref + '" s="' + si + '" t="inlineStr"><is><t xml:space="preserve">' + xml(cell.v) + '</t></is></c>';
+      }
+      return out;
+    }).join('');
+    return '<row r="' + r + '" ht="' + row.h + '" customHeight="1">' + cells + '</row>';
+  }).join('');
+
+  const font = (bold, color) => '<font>' + (bold ? '<b/>' : '') + '<sz val="11"/><color rgb="' + color + '"/><name val="맑은 고딕"/><family val="2"/><charset val="129"/></font>';
+  const sheetName = '개인경비';
+  return {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>',
+    '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="' + rel + '/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+    'xl/workbook.xml': '<workbook xmlns="' + ns + '" xmlns:r="' + rel + '"><sheets><sheet name="' + sheetName + '" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">' + sheetName + '!$A$1:$F$' + rows.length + '</definedName></definedNames></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="' + rel + '/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="' + rel + '/styles" Target="styles.xml"/></Relationships>',
+    'xl/styles.xml': '<styleSheet xmlns="' + ns + '"><numFmts count="2"><numFmt numFmtId="' + FMT_NUM + '" formatCode="#,##0"/><numFmt numFmtId="' + FMT_WON + '" formatCode="&quot;₩&quot;#,##0"/></numFmts>'
+      + '<fonts count="3">' + font(false, 'FF000000') + font(true, 'FF000000') + font(true, 'FF0000FF') + '</fonts>'
+      + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/><bgColor indexed="64"/></patternFill></fill></fills>'
+      + '<borders count="' + borders.length + '">' + borders.join('') + '</borders>'
+      + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+      + '<cellXfs count="' + styles.length + '">' + styles.join('') + '</cellXfs>'
+      + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>',
+    'xl/worksheets/sheet1.xml': '<worksheet xmlns="' + ns + '"><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><dimension ref="A1:F' + rows.length + '"/>'
+      + '<sheetViews><sheetView workbookViewId="0" showGridLines="1"/></sheetViews><sheetFormatPr defaultRowHeight="' + H + '"/>'
+      + '<cols>' + DAOU_COL_PX.map((w, i) => '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + ((w - 5) / 7).toFixed(3) + '" customWidth="1"/>').join('') + '</cols>'
+      + '<sheetData>' + sheetRows + '</sheetData>'
+      + '<mergeCells count="' + merges.length + '">' + merges.map(ref => '<mergeCell ref="' + ref + '"/>').join('') + '</mergeCells>'
+      + '<printOptions horizontalCentered="1"/><pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0" footer="0"/>'
+      + '<pageSetup paperSize="9" orientation="portrait" fitToWidth="1" fitToHeight="0"/></worksheet>',
+  };
+}
+// 무압축(stored) ZIP 작성 — 출장경비명세서 앱의 xlsxZip과 동일
+function xlsxZip(files) {
+  const encoder = new TextEncoder(), parts = [], central = [];
+  let offset = 0;
+  const header = size => { const bytes = new Uint8Array(size); return [bytes, new DataView(bytes.buffer)]; };
+  for (const [path, text] of Object.entries(files)) {
+    const name = encoder.encode(path), data = encoder.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' + text);
+    let crc = 0xffffffff;
+    for (const byte of data) { crc ^= byte; for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0); }
+    crc = (crc ^ 0xffffffff) >>> 0;
+    const [local, l] = header(30);
+    l.setUint32(0, 0x04034b50, true); l.setUint16(4, 20, true); l.setUint16(12, 33, true);
+    l.setUint32(14, crc, true); l.setUint32(18, data.length, true); l.setUint32(22, data.length, true); l.setUint16(26, name.length, true);
+    parts.push(local, name, data);
+    const [entry, c] = header(46);
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(14, 33, true);
+    c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true); c.setUint16(28, name.length, true); c.setUint32(42, offset, true);
+    central.push(entry, name); offset += local.length + name.length + data.length;
+  }
+  const size = central.reduce((n, p) => n + p.length, 0), count = Object.keys(files).length;
+  const [end, e] = header(22);
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, count, true); e.setUint16(10, count, true); e.setUint32(12, size, true); e.setUint32(16, offset, true);
+  const result = new Uint8Array(offset + size + 22); let pos = 0;
+  for (const part of [...parts, ...central, end]) { result.set(part, pos); pos += part.length; }
+  return result;
+}
+function exportPersonalXlsx() {
+  const s = current();
+  if (!s || slipType(s) !== 'personal') return;
+  try {
+    const blob = new Blob([xlsxZip(personalXlsxFiles(s))], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const filename = stripCtrl(['개인경비', s.draftDate || todayIso(), (s.title || '').trim()].filter(Boolean).join('_') + '.xlsx')
+      .replace(/[<>:"/\\|?*]/g, '_');
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = filename;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    showInfoToast('<b>📊 엑셀 파일 다운로드를 시작했습니다.</b><br>'
+      + '이 파일은 <b>백업·보관용</b>입니다. 엑셀에서 복사해 다우오피스에 붙여넣으면 엑셀이 표를 자체 규격으로 바꿔 복사해서 열 너비·테두리가 달라집니다.<br>'
+      + '다우오피스에는 <b>📋 다우오피스용 복사</b>를 사용해 주세요.');
+  } catch (error) {
+    alert('엑셀 추출 실패: ' + error.message);
+  }
+}
+// 긴 안내용 토스트 — html은 코드에 고정된 문구만 넣음
+let infoToastTimer = null;
+function showInfoToast(html, ms = 8000) {
+  document.getElementById('infoToastBody').innerHTML = html;
+  document.getElementById('infoToast').hidden = false;
+  clearTimeout(infoToastTimer);
+  infoToastTimer = setTimeout(hideInfoToast, ms);
+}
+function hideInfoToast() {
+  clearTimeout(infoToastTimer);
+  document.getElementById('infoToast').hidden = true;
+}
+function renderDaouPreview() {
+  const box = document.getElementById('daouPreview');
+  if (!box) return;
+  const s = current();
+  box.innerHTML = s && slipType(s) === 'personal' ? daouHtml(s) : '';
+}
+// 유형에 따라 버튼·영역 전환: 개인경비는 인쇄·페이지 추가·첨부 이미지를 숨기고 다우오피스 복사를 보임
+function applyTypeUi(s) {
+  const personal = !!s && slipType(s) === 'personal';
+  const show = (id, on) => { const el = document.getElementById(id); if (el) el.hidden = !on; };
+  show('printBtn', !personal);
+  show('addPageBtn', !personal);
+  show('daouBtn', personal);
+  show('xlsxBtn', personal);
+  show('attachSection', !personal);
+  show('daouSection', personal);
+  const note = document.getElementById('showDetailsNote');
+  if (note) note.textContent = personal ? '(복사에 포함)' : '(인쇄에 포함)';
+  renderDaouPreview();
+}
+
 /* ===== 전표 동작 ===== */
-function newSlip() {
-  const s = blankSlip();
+function openNewSlipDialog() {
+  document.getElementById('typeDialog').showModal();
+}
+function newSlip(type = 'withdrawal') {
+  const dialog = document.getElementById('typeDialog');
+  if (dialog.open) dialog.close();
+  const s = blankSlip(type);
   slips.push(s);
   persist();
   selectSlip(s.id);
@@ -1576,12 +1963,12 @@ function duplicateSlip() {
 // 페이지를 이어서 추가 (한 그룹으로 묶임). 날짜·제목은 이어받고 내용은 비움
 function addPage() {
   const s = current();
-  if (!s) return;
+  if (!s || slipType(s) === 'personal') return;   // 개인경비는 다우오피스에 붙여넣으므로 페이지 개념 없음
   const gid = slipGroupId(s);
   if (!s.groupId) { s.groupId = gid; s.pageNo = s.pageNo || 1; } // 단독 전표를 그룹 첫 페이지로 승격
   const pages = groupPages(s);
   const maxNo = Math.max(...pages.map(p => p.pageNo || 1));
-  const np = blankSlip();
+  const np = blankSlip(slipType(s));
   np.groupId = gid;
   np.pageNo = maxNo + 1;
   np.draftDate = s.draftDate;
@@ -1598,7 +1985,7 @@ function tsvCell(value) {
 }
 function buildSlipCopyText(s) {
   const lines = [
-    ['전표 유형', '출금전표'],
+    ['전표 유형', slipTypeLabel(s)],
     ['전표 제목', s.title || ''],
     ['작성일시', fmtDateTime(s.createdAt)],
     ['기안일', s.draftDate || '', '회계일', s.acctDate || ''],
@@ -1663,8 +2050,8 @@ function deleteSlip() {
   const pages = groupPages(s);
   const isGroup = pages.length > 1;
   const label = isGroup
-    ? `출금전표 ${pages.findIndex(p => p.id === s.id) + 1}/${pages.length}페이지`
-    : `${s.draftDate} 출금전표`;
+    ? `${slipTypeLabel(s)} ${pages.findIndex(p => p.id === s.id) + 1}/${pages.length}페이지`
+    : `${s.draftDate} ${slipTypeLabel(s)}`;
   if (!confirm(`${label}(${won(slipTotal(s))})를 삭제할까요?`)) return;
   s.attachments.forEach(imgDel);
   // 그룹의 다른 페이지가 남으면 그 중 하나를 이어서 열기
@@ -1685,7 +2072,8 @@ function deleteSlip() {
 function resetSlip() {
   const s = current();
   if (!s) return;
-  if (!confirm('이 출금전표의 내용을 모두 비웁니다. (항목·상세내역·첨부 이미지) 계속할까요?')) return;
+  const resetScope = slipType(s) === 'personal' ? '항목·상세내역' : '항목·상세내역·첨부 이미지';
+  if (!confirm(`이 ${slipTypeLabel(s)}의 내용을 모두 비웁니다. (${resetScope}) 계속할까요?`)) return;
   s.attachments.forEach(imgDel);
   const draft = todayIso();
   s.draftDate = draft;
@@ -1783,6 +2171,7 @@ async function buildPrintSection(p) {
 async function printSlip() {
   const s = current();
   if (!s) return;
+  if (slipType(s) === 'personal') { copyForDaou(); return; } // 개인경비는 인쇄 대신 다우오피스용 복사
   const pages = groupPages(s); // 그룹이면 전체 페이지, 단독이면 자기 1장
   const sections = [];
   for (const p of pages) sections.push(await buildPrintSection(p));
@@ -2083,14 +2472,14 @@ function importJson() {
       try {
         const data = JSON.parse(reader.result);
         if (!Array.isArray(data.slips)) throw new Error('형식 오류');
-        // 통합판 백업에 입금·대체전표가 섞여 있으면 출금전표만 가져옴
+        // 통합판 백업에 입금·대체전표가 섞여 있으면 출금전표·개인경비만 가져옴
         const all = data.slips.length;
-        data.slips = data.slips.filter(s => !s.type || s.type === 'withdrawal');
+        data.slips = data.slips.filter(s => !s.type || s.type === 'withdrawal' || s.type === 'personal');
         const skipped = all - data.slips.length;
-        if (!data.slips.length) throw new Error('이 백업에는 출금전표가 없습니다.');
+        if (!data.slips.length) throw new Error('이 백업에는 출금전표·개인경비가 없습니다.');
         pendingImport = data;
         document.getElementById('importInfo').innerHTML =
-          `${data.partial ? '선택 백업' : '전체 백업'} · 출금전표 <b>${data.slips.length}건</b>` +
+          `${data.partial ? '선택 백업' : '전체 백업'} · 전표 <b>${data.slips.length}건</b>` +
           (skipped ? ` <span style="color:#b26a00">(입금·대체전표 ${skipped}건은 제외)</span>` : '') + `<br>` +
           `현재 <b>${slips.length}건</b>에 어떻게 반영할까요?<br><br>` +
           `· <b>추가(병합)</b>: 현재 전표에 더합니다<br>` +
@@ -2112,7 +2501,7 @@ async function applyImport(mode) {
     }
     const incoming = data.slips.map(s => {
       const copy = { ...s };
-      delete copy.type;
+      if (copy.type !== 'personal') delete copy.type;   // 개인경비는 유형 유지
       delete copy.receiptItems;
       delete copy.transferItems;
       delete copy.draftDateEnd;
@@ -2154,7 +2543,7 @@ async function applyImport(mode) {
     if (selectMode) toggleSelectMode();
     persist();
     renderList();
-    alert(`${mode === 'overwrite' ? '덮어쓰기' : '추가'} 완료 — 출금전표 ${incoming.length}건 반영`);
+    alert(`${mode === 'overwrite' ? '덮어쓰기' : '추가'} 완료 — 전표 ${incoming.length}건 반영`);
   } catch (e) { alert('가져오기 실패: ' + e.message); }
 }
 
@@ -2166,5 +2555,6 @@ requestPersistentStorage();
 updateAutoBackupBtn();
 restoreAutoBackup();
 </script>
+<div id="infoToast" role="status" hidden><button class="toast-close" onclick="hideInfoToast()" title="닫기" aria-label="닫기">✕</button><div id="infoToastBody"></div></div>
 </body>
 </html>
