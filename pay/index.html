@@ -1735,7 +1735,10 @@ async function copyForDaou() {
   const html = '<html><body><!--StartFragment-->' + daouHtml(s) + '<!--EndFragment--></body></html>';
   try {
     await writeClipboardHtml(html, daouTsv(s));
-    flashStatus('📋 복사됨 — 다우오피스 본문에 Ctrl+V');
+    showInfoToast('<b>📋 다우오피스용 표를 복사했습니다.</b><br>'
+      + '다우오피스 기안 본문에서 <b>Ctrl+V</b>로 붙여넣으세요. 테두리·정렬·색상이 그대로 들어갑니다.<br>'
+      + (s.showDetails ? '상세내역도 함께 복사됐습니다.' : '상세내역은 <b>사용</b> 체크가 꺼져 있어 빠졌습니다.')
+      + ' 영수증은 다우오피스에 직접 첨부해 주세요.', 6000);
   } catch (error) {
     alert('다우오피스용 복사 실패: ' + error.message);
   }
