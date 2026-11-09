@@ -271,6 +271,7 @@
   .ti-table .m { color: #666; font-size: 12px; }
   .ti-table tr.ti-warn td { background: #fff7e6; }
   .ti-alert { color: #b26a00; font-weight: bold; }
+  #tableInputFill:disabled { color: #555; }
   .ti-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
   #acctTable { border-collapse: collapse; }
   #acctTable td, #acctTable th { border: 1px solid var(--bd-light); padding: 4px 8px; }
@@ -353,7 +354,7 @@
 <div id="app">
   <nav id="sidebar">
     <header>
-      <h1>출금전표 관리 <span class="app-version">v38</span></h1>
+      <h1>출금전표 관리 <span class="app-version">v39</span></h1>
       <div class="toolbar">
         <button class="primary" onclick="openNewSlipDialog()">+ 새 전표</button>
         <button onclick="openAcctDialog()">계정과목</button>
@@ -514,10 +515,11 @@
 <dialog id="tableInputDialog">
   <h3>표 입력</h3>
   <p>엑셀에서 표를 복사(Ctrl+C)해 아래에 붙여넣으세요(Ctrl+V). 첫 줄에 열 제목이 있으면 제목에 맞춰 읽고, 없으면 <b>계정과목 · 거래처 · 합계 · 공급가액 · 부가세</b> 순서로 읽습니다. 빈칸은 공란으로 입력됩니다.</p>
-  <textarea id="tableInputText" spellcheck="false" oninput="renderTableInputPreview()" onkeydown="onTableInputKeydown(event)" placeholder="계정과목&#9;거래처&#9;합계&#9;공급가액&#9;부가세&#10;통신비&#9;AI이용료&#9;30000&#9;27273&#9;2727"></textarea>
+  <textarea id="tableInputText" spellcheck="false" oninput="renderTableInputPreview()" onkeydown="onTableInputKeydown(event)" placeholder="계정과목&#9;거래처&#9;합계&#9;공급가액&#9;부가세&#10;상품/선급부가세&#9;로지텍:납품용키보드&#9;1100000&#9;1000000&#9;100000"></textarea>
   <div id="tableInputSummary"></div>
   <div id="tableInputPreview"></div>
   <div class="ti-actions">
+    <button id="tableInputLoad" style="margin-right:auto" onclick="loadTableInputItems()" title="지금 입력된 항목을 입력칸으로 가져옵니다">현재 항목 불러오기</button>
     <button id="tableInputReplace" class="danger" onclick="applyTableInput('replace')">기존 항목 지우고 입력</button>
     <button id="tableInputFill" class="primary" onclick="applyTableInput('fill')">입력</button>
     <button onclick="document.getElementById('tableInputDialog').close()">취소</button>
@@ -1342,10 +1344,34 @@ function readTableInput(text, s) {
   return { rows, header, notes };
 }
 function itemHasData(it) { return !!(it.acct || it.vendor || it.supply !== '' || it.vat !== ''); }
+let tableInputLoaded = false;   // 현재 항목을 불러온 상태 — 이어서 입력하면 중복되므로 바꾸기만 허용
+// 현재 항목을 표 입력과 같은 형식의 탭 구분 텍스트로 만듦 (엑셀로 옮기거나 입력칸에서 고쳐 다시 입력)
+function itemsToTableText(s) {
+  let end = s.items.length;
+  while (end > 0 && !itemHasData(s.items[end - 1])) end--;
+  const cell = v => { const t = tsvCell(v); return t.startsWith('"') ? '"' + t.replace(/"/g, '""') + '"' : t; };
+  const lines = [['계정과목', '거래처', '합계', '공급가액', '부가세']];
+  s.items.slice(0, end).forEach(it => {
+    const has = it.supply !== '' || it.vat !== '';
+    lines.push([it.acct, it.vendor, has ? itemSum(it) : '', it.supply === '' ? '' : parseNum(it.supply), it.vat === '' ? '' : parseNum(it.vat)]);
+  });
+  return lines.map(row => row.map(cell).join('\t')).join('\n');
+}
+function loadTableInputItems() {
+  const s = current();
+  if (!s) return;
+  const box = document.getElementById('tableInputText');
+  if (box.value.trim() && !confirm('입력칸의 내용을 현재 항목으로 바꿀까요?')) return;
+  box.value = itemsToTableText(s);
+  tableInputLoaded = true;
+  renderTableInputPreview();
+  box.focus();
+}
 function openTableInput() {
   if (!current()) return;
   const box = document.getElementById('tableInputText');
   box.value = '';
+  tableInputLoaded = false;
   renderTableInputPreview();
   document.getElementById('tableInputDialog').showModal();
   box.focus();
@@ -1361,13 +1387,15 @@ function renderTableInputPreview() {
   const s = current();
   if (!s) return;
   const { rows, header, notes } = readTableInput(document.getElementById('tableInputText').value, s);
+  if (!rows.length) tableInputLoaded = false;
   const used = s.items.filter(itemHasData).length;
   const checks = rows.filter(r => r.warns.length).length;
   const summary = document.getElementById('tableInputSummary');
   summary.innerHTML = !rows.length ? '붙여넣으면 입력될 내용을 여기서 미리 보여 드립니다.'
     : `<b>${rows.length}행</b> 인식 · ${header ? '첫 줄을 열 제목으로 사용' : '열 순서: 계정과목 · 거래처 · 합계 · 공급가액 · 부가세'}`
       + (checks ? ` · <span class="ti-alert">확인 필요 ${checks}행</span>` : '')
-      + notes.map(n => `<div class="ti-alert">${esc(n)}</div>`).join('');
+      + notes.map(n => `<div class="ti-alert">${esc(n)}</div>`).join('')
+      + (tableInputLoaded ? '<div>현재 항목을 불러왔습니다. 엑셀로 옮기려면 입력칸에서 <b>Ctrl+A → Ctrl+C</b>, 여기서 고쳤다면 <b>이 내용으로 바꾸기</b>를 누르세요.</div>' : '');
   document.getElementById('tableInputPreview').innerHTML = !rows.length ? '' :
     '<table class="ti-table"><thead><tr><th>번호</th><th>계정과목</th><th>거래처</th><th>합계</th><th>공급가액</th><th>부가세</th><th>확인</th></tr></thead><tbody>'
     + rows.map((r, i) => `<tr${r.warns.length ? ' class="ti-warn"' : ''}><td class="c">${i + 1}</td><td>${esc(r.acct)}</td><td>${esc(r.vendor)}</td>`
@@ -1379,6 +1407,10 @@ function renderTableInputPreview() {
   fill.disabled = replace.disabled = !rows.length;
   fill.textContent = used ? `입력된 ${used}행 뒤에 이어서 입력` : '입력';
   replace.hidden = !used;
+  fill.hidden = tableInputLoaded;
+  replace.textContent = tableInputLoaded ? '이 내용으로 바꾸기' : '기존 항목 지우고 입력';
+  replace.className = tableInputLoaded ? 'primary' : 'danger';
+  document.getElementById('tableInputLoad').disabled = !used;
 }
 function applyTableInput(mode) {
   const s = current();
@@ -1388,7 +1420,11 @@ function applyTableInput(mode) {
   const items = rows.map(r => ({ ...blankItem(), acct: r.acct, vendor: r.vendor, supply: r.supply, vat: r.vat }));
   if (mode === 'replace') {
     const used = s.items.filter(itemHasData).length;
-    if (used && !confirm(`입력돼 있는 ${used}행을 모두 지우고 붙여넣은 ${rows.length}행으로 바꿀까요?`)) return;
+    const kept = rows.filter(itemHasData).length;
+    const ask = tableInputLoaded
+      ? (kept < used && `항목이 ${used}행에서 ${kept}행으로 줄어듭니다. 계속할까요?`)
+      : (used && `입력돼 있는 ${used}행을 모두 지우고 붙여넣은 ${rows.length}행으로 바꿀까요?`);
+    if (ask && !confirm(ask)) return;
     s.items = items;
   } else {
     let start = s.items.length;
